@@ -559,11 +559,12 @@ void SoftAVCEncoder::onQueueFilled(OMX_U32 /* portIndex */) {
                 videoInput.height = align(mHeight, 16);
                 videoInput.pitch = align(mWidth, 16);
                 videoInput.coding_timestamp = (inHeader->nTimeStamp + 500) / 1000;  // in ms
-                const uint8_t *inputData = NULL;
-                if (mInputDataIsMeta) {
-                    if (inHeader->nFilledLen != 8) {
+                uint8_t *inputData = NULL;
+                if (mStoreMetaDataInBuffers) {
+                    if (inHeader->nFilledLen != (sizeof(OMX_U32) + sizeof(buffer_handle_t))) {
                         ALOGE("MetaData buffer is wrong size! "
-                                "(got %u bytes, expected 8)", inHeader->nFilledLen);
+                                "(got %u bytes, expected %d)", inHeader->nFilledLen,
+                                  sizeof(OMX_U32) + sizeof(buffer_handle_t));
                         mSignalledError = true;
                         notify(OMX_EventError, OMX_ErrorUndefined, 0, 0);
                         return;
@@ -706,6 +707,47 @@ int32_t SoftAVCEncoder::bindOutputBuffer(int32_t index, uint8_t **yuv) {
 void SoftAVCEncoder::signalBufferReturned(MediaBuffer *buffer) {
     UNUSED_UNLESS_VERBOSE(buffer);
     ALOGV("signalBufferReturned: %p", buffer);
+}
+
+OMX_ERRORTYPE SoftAVCEncoder::getExtensionIndex(
+        const char *name, OMX_INDEXTYPE *index) {
+    if (!strcmp(name, "OMX.google.android.index.storeMetaDataInBuffers")) {
+        *(int32_t*)index = kStoreMetaDataExtensionIndex;
+        return OMX_ErrorNone;
+    }
+    return OMX_ErrorUndefined;
+}
+
+uint8_t *SoftAVCEncoder::extractGrallocData(void *data, buffer_handle_t *buffer) {
+    OMX_U32 type = *(OMX_U32*)data;
+    status_t res;
+    if (type != kMetadataBufferTypeGrallocSource) {
+        ALOGE("Data passed in with metadata mode does not have type "
+                "kMetadataBufferTypeGrallocSource (%d), has type %d instead",
+                kMetadataBufferTypeGrallocSource, type);
+        return NULL;
+    }
+    buffer_handle_t imgBuffer = *(buffer_handle_t*)((uint8_t*)data + sizeof(OMX_U32));
+
+    const Rect rect(mVideoWidth, mVideoHeight);
+    uint8_t *img;
+    res = GraphicBufferMapper::get().lock(imgBuffer,
+            GRALLOC_USAGE_HW_VIDEO_ENCODER,
+            rect, (void**)&img);
+    if (res != OK) {
+        ALOGE("%s: Unable to lock image buffer %p for access", __FUNCTION__,
+                imgBuffer);
+        return NULL;
+    }
+
+    *buffer = imgBuffer;
+    return img;
+}
+
+void SoftAVCEncoder::releaseGrallocData(buffer_handle_t buffer) {
+    if (mStoreMetaDataInBuffers) {
+        GraphicBufferMapper::get().unlock(buffer);
+    }
 }
 
 }  // namespace android
