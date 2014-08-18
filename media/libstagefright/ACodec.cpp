@@ -5281,7 +5281,7 @@ bool ACodec::UninitializedState::onAllocateComponent(const sp<AMessage> &msg) {
         // this doesn't work here as the format isn't passed in the message
         //ExtendedCodec::overrideComponentName(quirks, msg, &componentName, &mime, encoder);
 
-        pid_t tid = androidGetTid();
+        pid_t tid = gettid();
         int prevPriority = androidGetThreadPriority(tid);
         androidSetThreadPriority(tid, ANDROID_PRIORITY_FOREGROUND);
         status_t err = omx->allocateNode(componentName.c_str(), observer, &node);
