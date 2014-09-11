@@ -208,6 +208,8 @@ LOCAL_SHARED_LIBRARIES += \
 endif
 endif
 
+include external/stlport/libstlport.mk
+
 LOCAL_SHARED_LIBRARIES += \
         libstagefright_enc_common \
         libstagefright_avc_common \
