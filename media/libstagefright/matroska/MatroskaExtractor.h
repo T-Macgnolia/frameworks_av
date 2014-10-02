@@ -24,6 +24,10 @@
 #include <utils/Vector.h>
 #include <utils/threads.h>
 
+namespace mkvparser {
+class Segment;
+};
+
 namespace android {
 
 struct AMessage;
