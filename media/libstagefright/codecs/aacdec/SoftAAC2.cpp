@@ -938,14 +938,13 @@ void SoftAAC2::onQueueFilled(OMX_U32 /* portIndex */) {
                     BufferInfo *outInfo = *outQueue.begin();
                     OMX_BUFFERHEADERTYPE *outHeader = outInfo->mHeader;
 
-                    if (outHeader->nOffset != 0) {
-                        ALOGE("outHeader->nOffset != 0 is not handled");
-                        mSignalledError = true;
-                        notify(OMX_EventError, OMX_ErrorUndefined, 0, NULL);
-                        return;
+                    INT_PCM *outBuffer = reinterpret_cast<INT_PCM *>(outHeader->pBuffer
+                            + outHeader->nOffset);
+                    int32_t ns = outputDelayRingBufferGetSamples(outBuffer, ringBufAvail);
+                    if (ns < 0) {
+                        ns = 0;
                     }
-
-                    outHeader->nFilledLen = 0;
+                    outHeader->nFilledLen = ns;
                     outHeader->nFlags = OMX_BUFFERFLAG_EOS;
 
                     outHeader->nTimeStamp = mBufferTimestamps.itemAt(0);
