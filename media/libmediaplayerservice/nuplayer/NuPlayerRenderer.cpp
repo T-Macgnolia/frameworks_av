@@ -1632,7 +1632,12 @@ status_t NuPlayer::Renderer::onOpenAudioSink(
     if (offloadingAudio()) {
         mAudioOffloadTornDown = false;
     }
+<<<<<<< HEAD
     return OK;
+=======
+
+    return offloadingAudio();
+>>>>>>> f06060f... DO NOT MERGE - NuPlayer: open audio sink in offload mode when resuming from timeout teardown.
 }
 
 void NuPlayer::Renderer::onCloseAudioSink() {
