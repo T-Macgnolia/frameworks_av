@@ -71,8 +71,8 @@ public:
         ALOGV("setCamera(%p,%p)", camera.get(), proxy.get());
         Parcel data, reply;
         data.writeInterfaceToken(IMediaRecorder::getInterfaceDescriptor());
-        data.writeStrongBinder(camera->asBinder());
-        data.writeStrongBinder(proxy->asBinder());
+        data.writeStrongBinder(IInterface::asBinder(camera));
+        data.writeStrongBinder(IInterface::asBinder(proxy));
         remote()->transact(SET_CAMERA, data, &reply);
         return reply.readInt32();
     }
@@ -95,7 +95,7 @@ public:
         ALOGV("setPreviewSurface(%p)", surface.get());
         Parcel data, reply;
         data.writeInterfaceToken(IMediaRecorder::getInterfaceDescriptor());
-        data.writeStrongBinder(surface->asBinder());
+        data.writeStrongBinder(IInterface::asBinder(surface));
         remote()->transact(SET_PREVIEW_SURFACE, data, &reply);
         return reply.readInt32();
     }
@@ -216,7 +216,7 @@ public:
         ALOGV("setListener(%p)", listener.get());
         Parcel data, reply;
         data.writeInterfaceToken(IMediaRecorder::getInterfaceDescriptor());
-        data.writeStrongBinder(listener->asBinder());
+        data.writeStrongBinder(IInterface::asBinder(listener));
         remote()->transact(SET_LISTENER, data, &reply);
         return reply.readInt32();
     }
@@ -484,7 +484,7 @@ status_t BnMediaRecorder::onTransact(
             int returnedNull= (surfaceMediaSource == NULL) ? 1 : 0 ;
             reply->writeInt32(returnedNull);
             if (!returnedNull) {
-                reply->writeStrongBinder(surfaceMediaSource->asBinder());
+                reply->writeStrongBinder(IInterface::asBinder(surfaceMediaSource));
             }
             return NO_ERROR;
         } break;

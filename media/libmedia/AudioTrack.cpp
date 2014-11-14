@@ -232,12 +232,12 @@ AudioTrack::~AudioTrack()
             mDirectTrack.clear();
         } else if (mAudioTrack != 0) {
 #endif
-            mAudioTrack->asBinder()->unlinkToDeath(mDeathNotifier, this);
-            mAudioTrack.clear();
-            mCblkMemory.clear();
-            mSharedBuffer.clear();
-            IPCThreadState::self()->flushCommands();
-            ALOGV("~AudioTrack, releasing session id from %d on behalf of %d",
+        IInterface::asBinder(mAudioTrack)->unlinkToDeath(mDeathNotifier, this);
+        mAudioTrack.clear();
+        mCblkMemory.clear();
+        mSharedBuffer.clear();
+        IPCThreadState::self()->flushCommands();
+        ALOGV("~AudioTrack, releasing session id from %d on behalf of %d",
                 IPCThreadState::self()->getCallingPid(), mClientPid);
             AudioSystem::releaseAudioSessionId(mSessionId, mClientPid);
 #ifdef QCOM_DIRECTTRACK
@@ -1473,7 +1473,7 @@ status_t AudioTrack::createTrack_l()
     }
     // invariant that mAudioTrack != 0 is true only after set() returns successfully
     if (mAudioTrack != 0) {
-        mAudioTrack->asBinder()->unlinkToDeath(mDeathNotifier, this);
+        IInterface::asBinder(mAudioTrack)->unlinkToDeath(mDeathNotifier, this);
         mDeathNotifier.clear();
     }
     mAudioTrack = track;
@@ -1586,7 +1586,7 @@ status_t AudioTrack::createTrack_l()
     mProxy->setMinimum(mNotificationFramesAct);
 
     mDeathNotifier = new DeathNotifier(this);
-    mAudioTrack->asBinder()->linkToDeath(mDeathNotifier, this);
+    IInterface::asBinder(mAudioTrack)->linkToDeath(mDeathNotifier, this);
 
     return NO_ERROR;
     }
