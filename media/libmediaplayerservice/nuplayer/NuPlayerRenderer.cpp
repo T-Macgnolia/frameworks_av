@@ -1161,9 +1161,7 @@ void NuPlayer::Renderer::onFlush(const sp<AMessage> &msg) {
     {
          Mutex::Autolock autoLock(mLock);
          syncQueuesDone_l();
-         if (!(offloadingAudio() && mPaused)) {
-             setPauseStartedTimeRealUs(-1);
-         }
+         setPauseStartedTimeRealUs(-1);
          setAnchorTime(-1, -1);
     }
 
