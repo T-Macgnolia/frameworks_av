@@ -354,8 +354,8 @@ void SoftMPEG4::onReset() {
     }
 }
 
-void SoftMPEG4::updatePortDefinitions(bool updateCrop, bool updateInputSize) {
-    SoftVideoDecoderOMXComponent::updatePortDefinitions(updateCrop, updateInputSize);
+void SoftMPEG4::updatePortDefinitions(bool updateCrop) {
+    SoftVideoDecoderOMXComponent::updatePortDefinitions(updateCrop);
 
     /* We have to align our width and height - this should affect stride! */
     OMX_PARAM_PORTDEFINITIONTYPE *def = &editPortInfo(kOutputPortIndex)->mDef;
