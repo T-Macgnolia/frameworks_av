@@ -1694,8 +1694,8 @@ void PlaylistFetcher::updateDuration() {
 }
 
 int64_t PlaylistFetcher::resumeThreshold(const sp<AMessage> &msg) {
-    int64_t durationUs, threshold;
-    if (msg->findInt64("durationUs", &durationUs) && durationUs > 0) {
+    int64_t durationUs;
+    if (msg->findInt64("durationUs", &durationUs)) {
         return kNumSkipFrames * durationUs;
     }
 
