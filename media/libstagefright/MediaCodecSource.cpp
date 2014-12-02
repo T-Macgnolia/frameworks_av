@@ -34,6 +34,13 @@
 #include <media/stagefright/MediaSource.h>
 #include <media/stagefright/MediaCodecSource.h>
 #include <media/stagefright/Utils.h>
+#include "include/ExtendedUtils.h"
+
+#ifdef ENABLE_AV_ENHANCEMENTS
+#include <media/stagefright/MediaDefs.h>
+#include <media/stagefright/OMXCodec.h>
+#include <ExtendedUtils.h>
+#endif
 
 namespace android {
 
@@ -352,6 +359,37 @@ MediaCodecSource::MediaCodecSource(
     if (!(mFlags & FLAG_USE_SURFACE_INPUT)) {
         mPuller = new Puller(source);
     }
+#ifdef ENABLE_AV_ENHANCEMENTS
+    int32_t bitRate = 0;
+    int32_t sampleRate = 0;
+    int32_t numChannels = 0;
+    int32_t aacProfile = 0;
+    audio_encoder aacEncoder;
+
+    outputFormat->findInt32("bitrate", &bitRate);
+    outputFormat->findInt32("channel-count", &numChannels);
+    outputFormat->findInt32("sample-rate", &sampleRate);
+    outputFormat->findInt32("aac-profile", &aacProfile);
+    ALOGD("bitrate:%d, samplerate:%d, channels:%d",
+                    bitRate, sampleRate, numChannels);
+    if (!strcasecmp(mime.c_str(), MEDIA_MIMETYPE_AUDIO_AAC)) {
+        switch(aacProfile) {
+        case OMX_AUDIO_AACObjectLC:
+            aacEncoder = AUDIO_ENCODER_AAC;
+            ALOGV("AUDIO_ENCODER_AAC");
+            break;
+        case OMX_AUDIO_AACObjectHE:
+            aacEncoder = AUDIO_ENCODER_HE_AAC;
+            ALOGV("AUDIO_ENCODER_HE_AAC");
+            break;
+        case OMX_AUDIO_AACObjectELD:
+            aacEncoder = AUDIO_ENCODER_AAC_ELD;
+            ALOGV("AUDIO_ENCODER_AAC_ELD");
+        }
+        ExtendedUtils::UseQCHWAACEncoder(aacEncoder, numChannels,
+                                          bitRate, sampleRate);
+    }
+#endif
 }
 
 MediaCodecSource::~MediaCodecSource() {
@@ -409,8 +447,13 @@ status_t MediaCodecSource::initEncoder() {
         return err;
     }
 
+    int32_t hfrRatio = 0;
+    mOutputFormat->findInt32("hfr-ratio", &hfrRatio);
+
     mEncoder->getOutputFormat(&mOutputFormat);
     convertMessageToMetaData(mOutputFormat, mMeta);
+
+    ExtendedUtils::HFR::setHFRRatio(mMeta, hfrRatio);
 
     if (mFlags & FLAG_USE_SURFACE_INPUT) {
         CHECK(mIsVideo);
@@ -661,6 +704,7 @@ status_t MediaCodecSource::doMoreWork(int32_t numInput, int32_t numOutput) {
 
             MediaBuffer *mbuf = new MediaBuffer(outbuf->size());
             memcpy(mbuf->data(), outbuf->data(), outbuf->size());
+            mbuf->meta_data()->setInt32(kKeyCanDeferRelease, true);
 
             if (!(flags & MediaCodec::BUFFER_FLAG_CODECCONFIG)) {
                 if (mIsVideo) {
@@ -734,6 +778,9 @@ status_t MediaCodecSource::onStart(MetaData *params) {
             resume();
         } else {
             CHECK(mPuller != NULL);
+            if (mIsVideo) {
+                mEncoder->requestIDRFrame();
+            }
             mPuller->resume();
         }
         return OK;
@@ -874,7 +921,7 @@ void MediaCodecSource::onMessageReceived(const sp<AMessage> &msg) {
     }
     case kWhatPause:
     {
-        if (mFlags && FLAG_USE_SURFACE_INPUT) {
+        if (mFlags & FLAG_USE_SURFACE_INPUT) {
             suspend();
         } else {
             CHECK(mPuller != NULL);

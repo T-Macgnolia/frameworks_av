@@ -23,6 +23,7 @@
 #include <media/stagefright/MediaSource.h>
 #include <media/stagefright/MediaBuffer.h>
 #include <utils/List.h>
+#include <utils/String8.h>
 
 #include <system/audio.h>
 
@@ -43,6 +44,7 @@ struct AudioSource : public MediaSource, public MediaBufferObserver {
     virtual status_t start(MetaData *params = NULL);
     virtual status_t stop() { return reset(); }
     virtual sp<MetaData> getFormat();
+    status_t pause();
 
     // Returns the maximum amplitude since last call.
     int16_t getMaxAmplitude();
@@ -66,7 +68,7 @@ private:
 
         // This is the initial mute duration to suppress
         // the video recording signal tone
-        kAutoRampStartUs = 0,
+        kAutoRampStartUs = 500000,
     };
 
     Mutex mLock;
@@ -76,6 +78,7 @@ private:
     sp<AudioRecord> mRecord;
     status_t mInitCheck;
     bool mStarted;
+    bool mRecPaused;
     int32_t mSampleRate;
 
     bool mTrackMaxAmplitude;
@@ -85,6 +88,7 @@ private:
     int64_t mInitialReadTimeUs;
     int64_t mNumFramesReceived;
     int64_t mNumClientOwnedBuffers;
+    int64_t mAutoRampStartUs;
 
     List<MediaBuffer * > mBuffersReceived;
 
@@ -103,6 +107,16 @@ private:
 
     AudioSource(const AudioSource &);
     AudioSource &operator=(const AudioSource &);
+
+    //additions for compress capture source
+public:
+    AudioSource(
+        audio_source_t inputSource, const sp<MetaData>& meta);
+
+private:
+    audio_format_t mFormat;
+    String8 mMime;
+    int32_t mMaxBufferSize;
 };
 
 }  // namespace android

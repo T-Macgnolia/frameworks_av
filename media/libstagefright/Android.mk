@@ -44,6 +44,7 @@ LOCAL_SRC_FILES:=                         \
         NuMediaExtractor.cpp              \
         OMXClient.cpp                     \
         OMXCodec.cpp                      \
+        ExtendedCodec.cpp                 \
         OggExtractor.cpp                  \
         SampleIterator.cpp                \
         SampleTable.cpp                   \
@@ -57,9 +58,12 @@ LOCAL_SRC_FILES:=                         \
         Utils.cpp                         \
         VBRISeeker.cpp                    \
         WAVExtractor.cpp                  \
+        WAVEWriter.cpp                    \
         WVMExtractor.cpp                  \
         XINGSeeker.cpp                    \
         avc_utils.cpp                     \
+        ExtendedExtractor.cpp             \
+        ExtendedUtils.cpp                 \
 
 LOCAL_C_INCLUDES:= \
         $(TOP)/frameworks/av/include/media/ \
@@ -99,6 +103,16 @@ LOCAL_SHARED_LIBRARIES := \
         libz \
         libpowermanager
 
+#QTI FLAC Decoder
+ifeq ($(call is-vendor-board-platform,QCOM),true)
+LOCAL_C_INCLUDES += $(TARGET_OUT_HEADERS)/mm-audio
+ifeq ($(strip $(AUDIO_FEATURE_ENABLED_EXTN_FLAC_DECODER)),true)
+LOCAL_SRC_FILES += FLACDecoder.cpp
+LOCAL_C_INCLUDES += $(TARGET_OUT_HEADERS)/mm-audio/audio-flac
+LOCAL_CFLAGS := -DQTI_FLAC_DECODER
+endif
+endif
+
 LOCAL_STATIC_LIBRARIES := \
         libstagefright_color_conversion \
         libstagefright_aacenc \
@@ -111,6 +125,33 @@ LOCAL_STATIC_LIBRARIES := \
         libstagefright_id3 \
         libFLAC \
         libmedia_helper
+
+ifeq ($(TARGET_USES_QCOM_BSP), true)
+    LOCAL_C_INCLUDES += $(call project-path-for,qcom-display)/$(TARGET_BOARD_PLATFORM)/libgralloc
+    LOCAL_CFLAGS += -DQCOM_BSP
+endif
+
+ifeq ($(TARGET_ENABLE_QC_AV_ENHANCEMENTS),true)
+       LOCAL_CFLAGS     += -DENABLE_AV_ENHANCEMENTS
+       LOCAL_C_INCLUDES += $(TOP)/$(call project-path-for,qcom-media)/$(TARGET_BOARD_PLATFORM)/mm-core/inc
+       LOCAL_C_INCLUDES += $(TOP)/frameworks/av/media/libstagefright/include
+       LOCAL_SRC_FILES  += ExtendedMediaDefs.cpp
+       LOCAL_SRC_FILES  += ExtendedWriter.cpp
+       LOCAL_SRC_FILES  += FMA2DPWriter.cpp
+endif #TARGET_ENABLE_AV_ENHANCEMENTS
+
+ifeq ($(call is-vendor-board-platform,QCOM),true)
+ifeq ($(strip $(AUDIO_FEATURE_ENABLED_PCM_OFFLOAD_24)),true)
+       LOCAL_CFLAGS     += -DPCM_OFFLOAD_ENABLED_24
+       LOCAL_C_INCLUDES += $(TOP)/$(call project-path-for,qcom-media)/$(TARGET_BOARD_PLATFORM)/mm-core/inc
+endif
+endif
+
+ifeq ($(call is-vendor-board-platform,QCOM),true)
+ifeq ($(strip $(AUDIO_FEATURE_ENABLED_FLAC_OFFLOAD)),true)
+       LOCAL_CFLAGS     += -DFLAC_OFFLOAD_ENABLED
+endif
+endif
 
 LOCAL_SHARED_LIBRARIES += \
         libstagefright_enc_common \

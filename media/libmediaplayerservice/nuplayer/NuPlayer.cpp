@@ -153,6 +153,7 @@ NuPlayer::NuPlayer()
       mSourceFlags(0),
       mVideoIsAVC(false),
       mOffloadAudio(false),
+      mIsStreaming(true),
       mAudioDecoderGeneration(0),
       mVideoDecoderGeneration(0),
       mRendererGeneration(0),
@@ -191,6 +192,7 @@ void NuPlayer::setDataSourceAsync(const sp<IStreamSource> &source) {
 
     sp<AMessage> notify = new AMessage(kWhatSourceNotify, id());
 
+    mIsStreaming = true;
     msg->setObject("source", new StreamingSource(notify, source));
     msg->post();
 }
@@ -249,6 +251,7 @@ void NuPlayer::setDataSourceAsync(
             ALOGE("Failed to set data source!");
         }
     }
+    mIsStreaming = true;
     msg->setObject("source", source);
     msg->post();
 }
@@ -267,6 +270,7 @@ void NuPlayer::setDataSourceAsync(int fd, int64_t offset, int64_t length) {
         ALOGE("Failed to set data source!");
         source = NULL;
     }
+    mIsStreaming = false;
 
     msg->setObject("source", source);
     msg->post();
@@ -611,10 +615,12 @@ void NuPlayer::onMessageReceived(const sp<AMessage> &msg) {
             }
 
             sp<AMessage> videoFormat = mSource->getFormat(false /* audio */);
+            sp<MetaData> vMeta = new MetaData;
+            convertMessageToMetaData(videoFormat, vMeta);
 
             mOffloadAudio =
-                canOffloadStream(audioMeta, (videoFormat != NULL),
-                                 true /* is_streaming */, streamType);
+                canOffloadStream(audioMeta, (videoFormat != NULL), vMeta,
+                                 mIsStreaming /* is_streaming */, streamType);
             if (mOffloadAudio) {
                 flags |= Renderer::FLAG_OFFLOAD_AUDIO;
             }
@@ -1526,7 +1532,7 @@ void NuPlayer::updateVideoSize(
 
     // Take into account sample aspect ratio if necessary:
     int32_t sarWidth, sarHeight;
-    if (inputFormat->findInt32("sar-width", &sarWidth)
+    if (inputFormat != NULL && inputFormat->findInt32("sar-width", &sarWidth)
             && inputFormat->findInt32("sar-height", &sarHeight)) {
         ALOGV("Sample aspect ratio %d : %d", sarWidth, sarHeight);
 
