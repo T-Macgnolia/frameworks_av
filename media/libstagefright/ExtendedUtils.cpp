@@ -567,7 +567,7 @@ status_t ExtendedUtils::HEVCMuxer::makeHEVCCodecSpecificData(
 
     int count = 0;
     void *codecConfigData = malloc(*codecSpecificDataSize);
-    if (codecSpecificData == NULL) {
+    if (codecConfigData == NULL) {
         ALOGE("Failed to allocate memory, bailing out");
         return NO_MEMORY;
     }
@@ -940,16 +940,6 @@ bool ExtendedUtils::UseQCHWAACEncoder(audio_encoder Encoder,int32_t Channel,int3
     return mIsQCHWAACEncoder;
 }
 
-bool ExtendedUtils::UseQCHWAACDecoder(const char *mime) {
-    if (!strncmp(mime, MEDIA_MIMETYPE_AUDIO_AAC, strlen(MEDIA_MIMETYPE_AUDIO_AAC))) {
-        char value[PROPERTY_VALUE_MAX] = {0};
-        if (property_get("media.aaccodectype", value, 0) && (atoi(value) == 1)) {
-            return true;
-        }
-    }
-    return false;
-}
-
 
 //- returns NULL if we dont really need a new extractor (or cannot),
 //  valid extractor is returned otherwise
@@ -1111,6 +1101,37 @@ bool ExtendedUtils::checkIsThumbNailMode(const uint32_t flags, char* componentNa
         isInThumbnailMode = true;
     }
     return isInThumbnailMode;
+}
+
+void ExtendedUtils::setArbitraryModeIfInterlaced(
+	const uint8_t *ptr, const sp<MetaData> &meta) {
+
+   if (ptr == NULL) {
+	return;
+   }
+   uint16_t spsSize = (((uint16_t)ptr[6]) << 8) + (uint16_t)(ptr[7]);
+   int32_t width = 0, height = 0, isInterlaced = 0;
+   const uint8_t *spsStart = &ptr[8];
+
+   sp<ABuffer> seqParamSet = new ABuffer(spsSize);
+   memcpy(seqParamSet->data(), spsStart, spsSize);
+   FindAVCDimensions(seqParamSet, &width, &height, NULL, NULL, &isInterlaced);
+
+   ALOGV("height is %d, width is %d, isInterlaced is %d\n", height, width, isInterlaced);
+   if (isInterlaced) {
+       meta->setInt32(kKeyUseArbitraryMode, 1);
+       meta->setInt32(kKeyInterlace, 1);	   
+   }
+   return; 
+}
+
+int32_t ExtendedUtils::checkIsInterlace(sp<MetaData> &meta) {
+    int32_t isInterlaceFormat = 0;
+
+    if(meta->findInt32(kKeyInterlace, &isInterlaceFormat)) {
+	ALOGI("interlace format detected");
+    }
+    return isInterlaceFormat;
 }
 
 void ExtendedUtils::applyPreRotation(
@@ -1726,11 +1747,6 @@ bool ExtendedUtils::UseQCHWAACEncoder(audio_encoder Encoder,int32_t Channel,
     return false;
 }
 
-bool ExtendedUtils::UseQCHWAACDecoder(const char *mime) {
-    ARG_TOUCH(mime);
-    return false;
-}
-
 sp<MediaExtractor> ExtendedUtils::MediaExtractor_CreateIfNeeded(
         sp<MediaExtractor> defaultExt,
         const sp<DataSource> &source,
@@ -1758,6 +1774,17 @@ bool ExtendedUtils::checkIsThumbNailMode(const uint32_t flags, char* componentNa
     ARG_TOUCH(flags);
     ARG_TOUCH(componentName);
     return false;
+}
+
+void ExtendedUtils::setArbitraryModeIfInterlaced(const uint8_t *ptr,
+        const sp<MetaData> &meta) {
+    ARG_TOUCH(ptr);
+    ARG_TOUCH(meta);
+}
+
+int32_t ExtendedUtils::checkIsInterlace(sp<MetaData> &meta) {
+    ARG_TOUCH(meta);
+    return 0;
 }
 
 void ExtendedUtils::HEVCMuxer::writeHEVCFtypBox(MPEG4Writer *writer) {

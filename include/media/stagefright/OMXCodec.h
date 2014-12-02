@@ -26,6 +26,15 @@
 
 #include <OMX_Audio.h>
 
+#include <media/stagefright/ExtendedStats.h>
+
+#define PLAYER_STATS(func, ...) \
+    do { \
+        if(mPlayerExtendedStats != NULL) { \
+            mPlayerExtendedStats->func(__VA_ARGS__);} \
+    } \
+    while(0)
+
 namespace android {
 
 struct MediaCodecInfo;
@@ -131,6 +140,8 @@ protected:
     virtual ~OMXCodec();
 
 private:
+
+    sp<PlayerExtendedStats> mPlayerExtendedStats;
 
     // Make sure mLock is accessible to OMXCodecObserver
     friend class OMXCodecObserver;
@@ -298,8 +309,27 @@ private:
     void setRawAudioFormat(
             OMX_U32 portIndex, int32_t sampleRate, int32_t numChannels);
 
+    //video
+    status_t setWMVFormat(const sp<MetaData> &inputFormat);
+    status_t setRVFormat(const sp<MetaData> &inputFormat);
+    status_t setFFmpegVideoFormat(const sp<MetaData> &inputFormat);
+    //audio
+    status_t setMP3Format(const sp<MetaData> &inputFormat);
+    status_t setWMAFormat(const sp<MetaData> &inputFormat);
+    status_t setVORBISFormat(const sp<MetaData> &inputFormat);
+    status_t setRAFormat(const sp<MetaData> &inputFormat);
+    status_t setFLACFormat(const sp<MetaData> &inputFormat);
+    status_t setMP2Format(const sp<MetaData> &inputFormat);
+    status_t setAC3Format(const sp<MetaData> &inputFormat);
+    status_t setAPEFormat(const sp<MetaData> &inputFormat);
+    status_t setDTSFormat(const sp<MetaData> &inputFormat);
+    status_t setFFmpegAudioFormat(const sp<MetaData> &inputFormat);
+
     status_t allocateBuffers();
     status_t allocateBuffersOnPort(OMX_U32 portIndex);
+#ifdef USE_SAMSUNG_COLORFORMAT
+    void setNativeWindowColorFormat(OMX_COLOR_FORMATTYPE &eNativeColorFormat);
+#endif
     status_t allocateOutputBuffersFromNativeWindow();
 
     status_t queueBufferToNativeWindow(BufferInfo *info);

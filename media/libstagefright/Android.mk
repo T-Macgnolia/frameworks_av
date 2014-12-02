@@ -64,6 +64,9 @@ LOCAL_SRC_FILES:=                         \
         avc_utils.cpp                     \
         ExtendedExtractor.cpp             \
         ExtendedUtils.cpp                 \
+        ExtendedStats.cpp                 \
+        APE.cpp                           \
+        FFMPEGSoftCodec.cpp               \
 
 LOCAL_C_INCLUDES:= \
         $(TOP)/frameworks/av/include/media/ \
@@ -103,6 +106,24 @@ LOCAL_SHARED_LIBRARIES := \
         libz \
         libpowermanager
 
+ifeq ($(BOARD_USES_QCOM_HARDWARE),true)
+ifneq ($(filter msm7x30 msm8660 msm8960,$(TARGET_BOARD_PLATFORM)),)
+ifeq ($(BOARD_USES_LEGACY_ALSA_AUDIO),true)
+   ifeq ($(USE_TUNNEL_MODE),true)
+        LOCAL_CFLAGS += -DUSE_TUNNEL_MODE
+   endif
+   ifeq ($(NO_TUNNEL_MODE_FOR_MULTICHANNEL),true)
+        LOCAL_CFLAGS += -DNO_TUNNEL_MODE_FOR_MULTICHANNEL
+   endif
+   LOCAL_SRC_FILES += LPAPlayerALSA.cpp TunnelPlayer.cpp
+endif
+endif
+endif
+
+ifeq ($(TARGET_BOARD_PLATFORM),omap4)
+LOCAL_CFLAGS := -DBOARD_CANT_REALLOCATE_OMX_BUFFERS
+endif
+
 #QTI FLAC Decoder
 ifeq ($(call is-vendor-board-platform,QCOM),true)
 LOCAL_C_INCLUDES += $(TARGET_OUT_HEADERS)/mm-audio
@@ -127,13 +148,13 @@ LOCAL_STATIC_LIBRARIES := \
         libmedia_helper
 
 ifeq ($(TARGET_USES_QCOM_BSP), true)
-    LOCAL_C_INCLUDES += $(call project-path-for,qcom-display)/$(TARGET_BOARD_PLATFORM)/libgralloc
+    LOCAL_C_INCLUDES += $(call project-path-for,qcom-display)/libgralloc
     LOCAL_CFLAGS += -DQCOM_BSP
 endif
 
 ifeq ($(TARGET_ENABLE_QC_AV_ENHANCEMENTS),true)
        LOCAL_CFLAGS     += -DENABLE_AV_ENHANCEMENTS
-       LOCAL_C_INCLUDES += $(TOP)/$(call project-path-for,qcom-media)/$(TARGET_BOARD_PLATFORM)/mm-core/inc
+       LOCAL_C_INCLUDES += $(TOP)/$(call project-path-for,qcom-media)/mm-core/inc
        LOCAL_C_INCLUDES += $(TOP)/frameworks/av/media/libstagefright/include
        LOCAL_SRC_FILES  += ExtendedMediaDefs.cpp
        LOCAL_SRC_FILES  += ExtendedWriter.cpp
@@ -143,7 +164,7 @@ endif #TARGET_ENABLE_AV_ENHANCEMENTS
 ifeq ($(call is-vendor-board-platform,QCOM),true)
 ifeq ($(strip $(AUDIO_FEATURE_ENABLED_PCM_OFFLOAD_24)),true)
        LOCAL_CFLAGS     += -DPCM_OFFLOAD_ENABLED_24
-       LOCAL_C_INCLUDES += $(TOP)/$(call project-path-for,qcom-media)/$(TARGET_BOARD_PLATFORM)/mm-core/inc
+       LOCAL_C_INCLUDES += $(TOP)/$(call project-path-for,qcom-media)/mm-core/inc
 endif
 endif
 
@@ -160,6 +181,16 @@ LOCAL_SHARED_LIBRARIES += \
         libdl
 
 LOCAL_CFLAGS += -Wno-multichar
+
+ifeq ($(BOARD_USE_SAMSUNG_COLORFORMAT), true)
+LOCAL_CFLAGS += -DUSE_SAMSUNG_COLORFORMAT
+
+# Include native color format header path
+LOCAL_C_INCLUDES += \
+	$(TOP)/hardware/samsung/exynos4/hal/include \
+	$(TOP)/hardware/samsung/exynos4/include
+
+endif
 
 LOCAL_MODULE:= libstagefright
 

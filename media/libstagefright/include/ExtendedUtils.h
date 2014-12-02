@@ -214,8 +214,6 @@ struct ExtendedUtils {
     static bool UseQCHWAACEncoder(audio_encoder Encoder = AUDIO_ENCODER_DEFAULT, int32_t Channel = 0,
             int32_t BitRate = 0, int32_t SampleRate = 0);
 
-    static bool UseQCHWAACDecoder(const char *mime);
-
     static sp<MediaExtractor> MediaExtractor_CreateIfNeeded(
             sp<MediaExtractor> defaultExt, const sp<DataSource> &source,
             const char *mime);
@@ -227,6 +225,10 @@ struct ExtendedUtils {
             OMX_U32 width, OMX_U32 height, OMX_COLOR_FORMATTYPE colorFormat);
 
     static bool checkIsThumbNailMode(const uint32_t flags, char* componentName);
+    
+    static void setArbitraryModeIfInterlaced(const uint8_t *ptr, const sp<MetaData> &meta);
+
+    static int32_t checkIsInterlace(sp<MetaData> &meta);
 
     static bool isVideoMuxFormatSupported(const char *mime);
 

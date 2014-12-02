@@ -806,7 +806,6 @@ ssize_t LiveSession::fetchFile(
         sp<DataSource> *source, /* to return and reuse source */
         String8 *actualUrl) {
     off64_t size;
-    ALOGI("fetchFile: %s", url);
     sp<DataSource> temp_source;
     if (source == NULL) {
         source = &temp_source;
@@ -1110,7 +1109,7 @@ status_t LiveSession::onSeek(const sp<AMessage> &msg) {
 }
 
 status_t LiveSession::getDuration(int64_t *durationUs) const {
-    int64_t maxDurationUs = 0ll;
+    int64_t maxDurationUs = -1ll;
     for (size_t i = 0; i < mFetcherInfos.size(); ++i) {
         int64_t fetcherDurationUs = mFetcherInfos.valueAt(i).mDurationUs;
 

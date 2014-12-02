@@ -42,6 +42,8 @@
 #include <media/stagefright/ExtendedCodec.h>
 #include <media/stagefright/OMXCodec.h>
 
+#include <media/stagefright/FFMPEGSoftCodec.h>
+
 #define ARG_TOUCH(x) (void)x
 
 #ifdef ENABLE_AV_ENHANCEMENTS
@@ -82,11 +84,14 @@ static const MetaKeyEntry MetaKeyTable[] {
    {kKeyWMABitspersample     , "wma-bits-per-sample"    , INT32},  // int32_t
    {kKeyWMAVirPktSize        , "wma-vir-pkt-size"       , INT32},  // int32_t
    {kKeyWMAChannelMask       , "wma-channel-mask"       , INT32},  // int32_t
-
+   {kKeyWMVVersion           , "wmv-version"            , INT32},
    {kKeyFileFormat           , "file-format"            , STRING},  // cstring
+   {kKeyBlockAlign           , "block-align"            , INT32},
+   {kKeyRVVersion            , "rv-version"             , INT32},
 
    {kkeyAacFormatAdif        , "aac-format-adif"        , INT32},  // bool (int32_t)
    {kkeyAacFormatLtp         , "aac-format-ltp"         , INT32},
+   {kKeyAACAOT               , "aac-profile"            , INT32},
 
    //DTS subtype
    {kKeyDTSSubtype           , "dts-subtype"            , INT32},  //int32_t
@@ -193,10 +198,8 @@ uint32_t ExtendedCodec::getComponentQuirks(
 
 const char* ExtendedCodec::overrideComponentName(
         uint32_t quirks, const sp<MetaData> &meta, const char *mime, bool isEncoder) {
-    const char* componentName = NULL;
-    char value[PROPERTY_VALUE_MAX] = {0};
-    int sw_codectype = 0;
-    int enableSwHevc = 0;
+
+    const char* componentName = FFMPEGSoftCodec::overrideComponentName(quirks, meta, mime, isEncoder);
 
     if (quirks & kRequiresWMAProComponent)
     {
@@ -212,21 +215,13 @@ const char* ExtendedCodec::overrideComponentName(
        }
     }
 
-    if (!isEncoder && !strncasecmp(mime, MEDIA_MIMETYPE_VIDEO_HEVC, strlen(MEDIA_MIMETYPE_VIDEO_HEVC))) {
-        sw_codectype = property_get("media.swhevccodectype", value, NULL);
-        enableSwHevc = atoi(value);
-        if (sw_codectype && enableSwHevc) {
-           componentName = "OMX.qcom.video.decoder.hevcswvdec";
-        }
-    }
     return componentName;
 }
 
 void ExtendedCodec::overrideComponentName(
         uint32_t quirks, const sp<AMessage> &msg, AString* componentName, AString* mime, int32_t isEncoder) {
-    char value[PROPERTY_VALUE_MAX] = {0};
-    int sw_codectype = 0;
-    int enableSwHevc = 0;
+
+    FFMPEGSoftCodec::overrideComponentName(quirks, msg, componentName, mime, isEncoder);
 
     if (quirks & kRequiresWMAProComponent)
     {
@@ -240,14 +235,6 @@ void ExtendedCodec::overrideComponentName(
              componentName->setTo("OMX.qcom.audio.decoder.wmaLossLess");
           }
        }
-    }
-
-    if (!isEncoder && !strncasecmp(mime->c_str(), MEDIA_MIMETYPE_VIDEO_HEVC, strlen(MEDIA_MIMETYPE_VIDEO_HEVC))) {
-        sw_codectype = property_get("media.swhevccodectype", value, NULL);
-        enableSwHevc = atoi(value);
-        if (sw_codectype && enableSwHevc) {
-           componentName->setTo("OMX.qcom.video.decoder.hevcswvdec");
-        }
     }
 }
 
@@ -370,8 +357,7 @@ status_t ExtendedCodec::setAudioFormat(
     ALOGV("setAudioFormat called");
     status_t err = OK;
 
-    if ((!strcasecmp(MEDIA_MIMETYPE_AUDIO_AC3, mime)) ||
-        (!strcasecmp(MEDIA_MIMETYPE_AUDIO_EAC3, mime))) {
+    if (!strcasecmp(MEDIA_MIMETYPE_AUDIO_EAC3, mime)) {
         int32_t numChannels, sampleRate;
         CHECK(msg->findInt32("channel-count", &numChannels));
         CHECK(msg->findInt32("sample-rate", &sampleRate));
@@ -400,8 +386,19 @@ status_t ExtendedCodec::setAudioFormat(
 }
 
 status_t ExtendedCodec::setVideoFormat(
-        const char *mime, OMX_VIDEO_CODINGTYPE *compressionFormat) {
+        const sp<MetaData> &meta, const char* mime,
+        OMX_VIDEO_CODINGTYPE *compressionFormat) {
+    sp<AMessage> msg = new AMessage();
+    msg->clear();
+    convertMetaDataToMessage(meta, &msg);
+    return setVideoFormat(msg, mime, compressionFormat);
+}
+
+status_t ExtendedCodec::setVideoFormat(
+        const sp<AMessage> &msg, const char* mime,
+        OMX_VIDEO_CODINGTYPE *compressionFormat) {
     status_t retVal = OK;
+    ALOGV("setVideoFormat: %s", msg->debugString(0).c_str());
     if (!strcasecmp(MEDIA_MIMETYPE_VIDEO_DIVX, mime)) {
         *compressionFormat= (OMX_VIDEO_CODINGTYPE)QOMX_VIDEO_CodingDivx;
     } else if (!strcasecmp(MEDIA_MIMETYPE_VIDEO_DIVX4, mime)) {
@@ -958,7 +955,10 @@ status_t ExtendedCodec::setWMAFormat(
         CHECK(msg->findInt32("channel-count", &numChannels));
         CHECK(msg->findInt32("sample-rate", &sampleRate));
         CHECK(msg->findInt32(getMsgKey(kKeyBitRate), &bitRate));
-        CHECK(msg->findInt32(getMsgKey(kKeyWMAEncodeOpt), &encodeOptions));
+        if (!msg->findInt32(getMsgKey(kKeyWMAEncodeOpt), &encodeOptions)) {
+            ALOGE("Unsupported encode options");
+            return ERROR_UNSUPPORTED;
+        }
         CHECK(msg->findInt32(getMsgKey(kKeyWMABlockAlign), &blockAlign));
         ALOGV("Channels: %d, SampleRate: %d, BitRate; %d"
                    "EncodeOptions: %d, blockAlign: %d", numChannels,
@@ -1157,6 +1157,18 @@ status_t ExtendedCodec::setAMRWBPLUSFormat(
     return err;
 }
 
+bool ExtendedCodec::useHWAACDecoder(const char *mime) {
+    char value[PROPERTY_VALUE_MAX] = {0};
+    int aaccodectype = 0;
+    aaccodectype = property_get("media.aaccodectype", value, NULL);
+    if (aaccodectype && !strncmp("0", value, 1) &&
+        !strcasecmp(mime, MEDIA_MIMETYPE_AUDIO_AAC)) {
+        ALOGI("Using Hardware AAC Decoder");
+        return true;
+    }
+    return false;
+}
+
 bool ExtendedCodec::isSourcePauseRequired(const char *componentName) {
     /* pause is required for hardware component to release adsp resources */
     if (!strncmp(componentName, "OMX.qcom.", 9)) {
@@ -1219,11 +1231,11 @@ namespace android {
     }
 
     status_t ExtendedCodec::setVideoFormat(
-            const char *mime,
+            const sp<AMessage> &msg, const char* mime,
             OMX_VIDEO_CODINGTYPE *compressionFormat) {
         ARG_TOUCH(mime);
         ARG_TOUCH(compressionFormat);
-        return OK;
+        return ERROR_UNSUPPORTED;
     }
 
     status_t ExtendedCodec::getSupportedAudioFormatInfo(
@@ -1279,7 +1291,7 @@ namespace android {
         ARG_TOUCH(meta);
         ARG_TOUCH(mime);
         ARG_TOUCH(isEncoder);
-        return NULL;
+        return FFMPEGSoftCodec::overrideComponentName(quirks, meta, mime, isEncoder);
     }
 
     void ExtendedCodec::overrideComponentName(
@@ -1291,6 +1303,7 @@ namespace android {
         ARG_TOUCH(componentName);
         ARG_TOUCH(mime);
         ARG_TOUCH(isEncoder);
+        return FFMPEGSoftCodec::overrideComponentName(quirks, msg, componentName, mime, isEncoder);
     }
 
     void ExtendedCodec::overrideMimeType(
@@ -1336,7 +1349,7 @@ namespace android {
         ARG_TOUCH(node);
         ARG_TOUCH(isEncoder);
         ARG_TOUCH(mime);
-        return OK;
+        return BAD_VALUE;
     }
 
     status_t ExtendedCodec::setWMAFormat(
@@ -1438,6 +1451,11 @@ namespace android {
         ARG_TOUCH(flags);
         ARG_TOUCH(nodeID);
         ARG_TOUCH(componentName);
+    }
+
+    bool ExtendedCodec::useHWAACDecoder(const char *mime) {
+        ARG_TOUCH(mime);
+        return false;
     }
 
     void ExtendedCodec::enableSmoothStreaming(

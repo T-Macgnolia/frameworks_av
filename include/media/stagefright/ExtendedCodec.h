@@ -74,7 +74,11 @@ struct ExtendedCodec {
             bool isEncoder);
 
     static status_t setVideoFormat(
-            const char *mime,
+            const sp<MetaData> &meta, const char *mime,
+            OMX_VIDEO_CODINGTYPE *compressionFormat);
+
+    static status_t setVideoFormat(
+            const sp<AMessage> &msg, const char *mime,
             OMX_VIDEO_CODINGTYPE *compressionFormat);
 
     static status_t getSupportedAudioFormatInfo(
@@ -151,6 +155,8 @@ struct ExtendedCodec {
     static void enableSmoothStreaming(
             const sp<IOMX> &omx, IOMX::node_id nodeID, bool* isEnabled,
             const char* componentName);
+
+    static bool useHWAACDecoder(const char *mime);
 
     static bool isSourcePauseRequired(const char *componentName);
 

@@ -276,7 +276,7 @@ status_t convertMetaDataToMessage(
         const uint8_t *ptr = (const uint8_t *)data;
 
         CHECK(size >= 7);
-        CHECK_EQ((unsigned)ptr[0], 1u);  // configurationVersion == 1
+        //CHECK_EQ((unsigned)ptr[0], 1u);  // configurationVersion == 1
         uint8_t profile = ptr[1] & 31;
         uint8_t level = ptr[12];
         ptr += 22;
@@ -658,12 +658,10 @@ status_t sendMetaDataToHal(sp<MediaPlayerBase::AudioSink>& sink,
     if (meta->findInt32(kKeyBitRate, &bitRate)) {
         param.addInt(String8(AUDIO_OFFLOAD_CODEC_AVG_BIT_RATE), bitRate);
     }
-    if (meta->findInt32(kKeyEncoderDelay, &delaySamples)) {
-        param.addInt(String8(AUDIO_OFFLOAD_CODEC_DELAY_SAMPLES), delaySamples);
-    }
-    if (meta->findInt32(kKeyEncoderPadding, &paddingSamples)) {
-        param.addInt(String8(AUDIO_OFFLOAD_CODEC_PADDING_SAMPLES), paddingSamples);
-    }
+    meta->findInt32(kKeyEncoderDelay, &delaySamples);
+    param.addInt(String8(AUDIO_OFFLOAD_CODEC_DELAY_SAMPLES), delaySamples);
+    meta->findInt32(kKeyEncoderPadding, &paddingSamples);
+    param.addInt(String8(AUDIO_OFFLOAD_CODEC_PADDING_SAMPLES), paddingSamples);
 #ifdef ENABLE_AV_ENHANCEMENTS
 #ifdef FLAC_OFFLOAD_ENABLED
     int32_t minBlkSize, maxBlkSize, minFrmSize, maxFrmSize; //FLAC params

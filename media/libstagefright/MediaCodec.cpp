@@ -872,7 +872,8 @@ void MediaCodec::onMessageReceived(const sp<AMessage> &msg) {
 
                     CHECK(msg->findString("componentName", &mComponentName));
 
-                    if (mComponentName.startsWith("OMX.google.")) {
+                    if (mComponentName.startsWith("OMX.google.") ||
+                            mComponentName.startsWith("OMX.ffmpeg.")) {
                         mFlags |= kFlagIsSoftwareCodec;
                     } else {
                         mFlags &= ~kFlagIsSoftwareCodec;
@@ -1560,7 +1561,7 @@ void MediaCodec::onMessageReceived(const sp<AMessage> &msg) {
             uint32_t replyID;
             CHECK(msg->senderAwaitsResponse(&replyID));
 
-            if (!isExecuting() || (mFlags & kFlagIsAsync)) {
+            if (!isExecuting()) {
                 PostReplyWithError(replyID, INVALID_OPERATION);
                 break;
             } else if (mFlags & kFlagStickyError) {
