@@ -80,7 +80,6 @@ class MediaPlayerService : public BnMediaPlayerService
         virtual                 ~AudioOutput();
 
         virtual bool            ready() const { return mTrack != 0; }
-        virtual bool            realtime() const { return true; }
         virtual ssize_t         bufferSize() const;
         virtual ssize_t         frameCount() const;
         virtual ssize_t         channelCount() const;
@@ -197,6 +196,7 @@ class MediaPlayerService : public BnMediaPlayerService
     }; // AudioOutput
 
 
+<<<<<<< HEAD
     class AudioCache : public MediaPlayerBase::AudioSink
     {
     public:
@@ -270,6 +270,8 @@ class MediaPlayerService : public BnMediaPlayerService
         sp<Thread>          mCallbackThread;
     }; // AudioCache
 
+=======
+>>>>>>> b7848f1... Remove MediaPlayerService::decode()
 public:
     static  void                instantiate();
 
@@ -280,19 +282,6 @@ public:
 
     virtual sp<IMediaPlayer>    create(const sp<IMediaPlayerClient>& client, int audioSessionId);
 
-    virtual status_t            decode(
-            const sp<IMediaHTTPService> &httpService,
-            const char* url,
-            uint32_t *pSampleRate,
-            int* pNumChannels,
-            audio_format_t* pFormat,
-            const sp<IMemoryHeap>& heap,
-            size_t *pSize);
-
-    virtual status_t            decode(int fd, int64_t offset, int64_t length,
-                                       uint32_t *pSampleRate, int* pNumChannels,
-                                       audio_format_t* pFormat,
-                                       const sp<IMemoryHeap>& heap, size_t *pSize);
     virtual sp<IMediaCodecList> getCodecList() const;
     virtual sp<IOMX>            getOMX();
     virtual sp<ICrypto>         makeCrypto();

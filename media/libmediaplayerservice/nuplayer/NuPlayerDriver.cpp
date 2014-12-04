@@ -667,8 +667,12 @@ void NuPlayerDriver::notifyListener_l(
                         mAutoLoop = false;
                     }
                 }
+<<<<<<< HEAD
                 if (mLooping || (mAutoLoop
                         && (mAudioSink == NULL || mAudioSink->realtime()))) {
+=======
+                if (mLooping || mAutoLoop) {
+>>>>>>> b7848f1... Remove MediaPlayerService::decode()
                     mPlayer->seekToAsync(0);
                     if (mAudioSink != NULL) {
                         // The renderer has stopped the sink at the end in order to play out
