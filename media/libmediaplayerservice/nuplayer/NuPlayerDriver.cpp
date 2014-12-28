@@ -30,6 +30,8 @@
 #include <media/stagefright/MetaData.h>
 #include <media/stagefright/Utils.h>
 
+#include "ExtendedUtils.h"
+
 namespace android {
 
 NuPlayerDriver::NuPlayerDriver()
@@ -111,6 +113,10 @@ status_t NuPlayerDriver::setDataSource(int fd, int64_t offset, int64_t length) {
 
     while (mState == STATE_SET_DATASOURCE_PENDING) {
         mCondition.wait(mLock);
+    }
+
+    if (fd) {
+        ExtendedUtils::printFileName(fd);
     }
 
     return mAsyncResult;
@@ -316,6 +322,13 @@ status_t NuPlayerDriver::stop() {
 }
 
 status_t NuPlayerDriver::pause() {
+    // The NuPlayerRenderer may get flushed if pause for long enough, e.g. the pause timeout tear
+    // down for audio offload mode. If that happens, the NuPlayerRenderer will no longer know the
+    // current position. So similar to seekTo, update |mPositionUs| to the pause position by calling
+    // getCurrentPosition here.
+    int msec;
+    getCurrentPosition(&msec);
+
     Mutex::Autolock autoLock(mLock);
 
     switch (mState) {

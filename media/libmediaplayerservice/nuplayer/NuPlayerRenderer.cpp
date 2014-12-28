@@ -35,6 +35,10 @@
 
 #include <inttypes.h>
 
+#ifdef ENABLE_AV_ENHANCEMENTS
+#include "ExtendedUtils.h"
+#endif
+
 namespace android {
 
 // Maximum time in paused state when offloading audio decompression. When elapsed, the AudioSink
@@ -158,6 +162,10 @@ void NuPlayer::Renderer::signalAudioSinkChanged() {
 
 void NuPlayer::Renderer::signalDisableOffloadAudio() {
     (new AMessage(kWhatDisableOffloadAudio, id()))->post();
+}
+
+void NuPlayer::Renderer::signalEnableOffloadAudio() {
+    (new AMessage(kWhatEnableOffloadAudio, id()))->post();
 }
 
 void NuPlayer::Renderer::pause() {
@@ -420,6 +428,12 @@ void NuPlayer::Renderer::onMessageReceived(const sp<AMessage> &msg) {
         case kWhatDisableOffloadAudio:
         {
             onDisableOffloadAudio();
+            break;
+        }
+
+        case kWhatEnableOffloadAudio:
+        {
+            onEnableOffloadAudio();
             break;
         }
 
@@ -1066,7 +1080,10 @@ void NuPlayer::Renderer::onFlush(const sp<AMessage> &msg) {
     {
          Mutex::Autolock autoLock(mLock);
          syncQueuesDone_l();
-         setPauseStartedTimeRealUs(-1);
+         if (!(offloadingAudio()) && !(mPaused)) {
+             setPauseStartedTimeRealUs(-1);
+         }
+         setAnchorTime(-1, -1);
     }
 
     ALOGV("flushing %s", audio ? "audio" : "video");
@@ -1171,6 +1188,12 @@ void NuPlayer::Renderer::onDisableOffloadAudio() {
     ++mAudioQueueGeneration;
 }
 
+void NuPlayer::Renderer::onEnableOffloadAudio() {
+    Mutex::Autolock autoLock(mLock);
+    mFlags |= FLAG_OFFLOAD_AUDIO;
+    ++mAudioQueueGeneration;
+}
+
 void NuPlayer::Renderer::onPause() {
     if (mPaused) {
         ALOGW("Renderer::onPause() called while already paused!");
@@ -1222,6 +1245,10 @@ void NuPlayer::Renderer::onResume() {
 
     if (!mAudioQueue.empty()) {
         postDrainAudioQueue_l();
+    } else if (mHasAudio) {
+        // Audio decoder is not ready when resuming playback after
+        // changing audio track. Queue synching is needed.
+        mSyncQueues = true;
     }
 
     if (!mVideoQueue.empty()) {
@@ -1364,9 +1391,7 @@ bool NuPlayer::Renderer::onOpenAudioSink(
     CHECK(format->findString("mime", &mime));
 
 #ifdef ENABLE_AV_ENHANCEMENTS
-    char prop[PROPERTY_VALUE_MAX] = {0};
-    property_get("audio.offload.pcm.enable", prop, "0");
-    pcmOffload = (atoi(prop) || !strcmp(prop, "true")) &&
+    pcmOffload = ExtendedUtils::isPcmOffloadEnabled() &&
             !strcasecmp(mime.c_str(), MEDIA_MIMETYPE_AUDIO_RAW);
 
     // At this point we can check if PCM should be offloaded
@@ -1374,7 +1399,7 @@ bool NuPlayer::Renderer::onOpenAudioSink(
         sp<MetaData> aMeta = new MetaData;
         convertMessageToMetaData(format, aMeta);
         if  (canOffloadStream(aMeta, false, new MetaData,
-                    true, AUDIO_STREAM_MUSIC)) {
+                    hasVideo, AUDIO_STREAM_MUSIC)) {
             mFlags |= FLAG_OFFLOAD_AUDIO;
         }
     }
@@ -1488,6 +1513,9 @@ bool NuPlayer::Renderer::onOpenAudioSink(
     }
     if (audioSinkChanged) {
         onAudioSinkChanged();
+    }
+    if (offloadingAudio()) {
+        mAudioOffloadTornDown = false;
     }
 
     return offloadingAudio();
