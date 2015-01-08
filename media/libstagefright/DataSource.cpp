@@ -22,6 +22,7 @@
 #include "include/DRMExtractor.h"
 #include "include/FLACExtractor.h"
 #include "include/HTTPBase.h"
+#include "include/MidiExtractor.h"
 #include "include/MP3Extractor.h"
 #include "include/MPEG2PSExtractor.h"
 #include "include/MPEG2TSExtractor.h"
@@ -244,6 +245,7 @@ void Sniffer::registerDefaultSniffers() {
     registerSniffer_l(SniffAAC);
     registerSniffer_l(SniffMPEG2PS);
     registerSniffer_l(SniffWVM);
+    registerSniffer_l(SniffMidi);
 #ifdef QCOM_HARDWARE
     registerSniffer_l(ExtendedExtractor::Sniff);
 #endif

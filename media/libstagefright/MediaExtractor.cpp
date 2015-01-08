@@ -29,6 +29,7 @@
 #include "include/WVMExtractor.h"
 #include "include/FLACExtractor.h"
 #include "include/AACExtractor.h"
+#include "include/MidiExtractor.h"
 
 #include "matroska/MatroskaExtractor.h"
 
@@ -133,6 +134,8 @@ retry:
         ret = new MPEG2PSExtractor(source);
     } else if (!isDrm && sPlugin.create) {
         ret = sPlugin.create(source, mime, meta);
+    } else if (!strcasecmp(mime, MEDIA_MIMETYPE_AUDIO_MIDI)) {
+        ret = new MidiExtractor(source);
     }
 
     if (ret != NULL) {
