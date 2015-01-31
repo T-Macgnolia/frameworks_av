@@ -120,6 +120,7 @@ const StringToEnum sDeviceNameToEnumTable[] = {
     STRING_TO_ENUM(AUDIO_DEVICE_IN_SPDIF),
     STRING_TO_ENUM(AUDIO_DEVICE_IN_BLUETOOTH_A2DP),
     STRING_TO_ENUM(AUDIO_DEVICE_IN_LOOPBACK),
+    STRING_TO_ENUM(AUDIO_DEVICE_IN_COMMUNICATION),
 #ifdef AUDIO_EXTN_FM_ENABLED
     STRING_TO_ENUM(AUDIO_DEVICE_IN_FM_RX),
     STRING_TO_ENUM(AUDIO_DEVICE_IN_FM_RX_A2DP),
@@ -584,7 +585,11 @@ void AudioPolicyManager::updateCallRouting(audio_devices_t rxDevice, int delayMs
     audio_patch_handle_t afPatchHandle;
     DeviceVector deviceList;
 
+#ifndef QCOM_DIRECTTRACK
     audio_devices_t txDevice = getDeviceForInputSource(AUDIO_SOURCE_VOICE_COMMUNICATION);
+#else
+    audio_devices_t txDevice = getDeviceForInputSource(AUDIO_SOURCE_VOICE_CALL);
+#endif
     ALOGV("updateCallRouting device rxDevice %08x txDevice %08x", rxDevice, txDevice);
 
     // release existing RX patch if any
