@@ -168,7 +168,7 @@ struct MyHandler : public AHandler {
             mSessionURL.append("rtsp://");
             mSessionURL.append(host);
             mSessionURL.append(":");
-            mSessionURL.append(StringPrintf("%u", port));
+            mSessionURL.append(AStringPrintf("%u", port));
             mSessionURL.append(path);
 
             ALOGV("rewritten session url: '%s'", mSessionURL.c_str());
@@ -536,7 +536,7 @@ struct MyHandler : public AHandler {
                             mSessionURL.append("rtsp://");
                             mSessionURL.append(host);
                             mSessionURL.append(":");
-                            mSessionURL.append(StringPrintf("%u", port));
+                            mSessionURL.append(AStringPrintf("%u", port));
                             mSessionURL.append(path);
 
                             ALOGI("rewritten session url: '%s'", mSessionURL.c_str());
@@ -1306,7 +1306,7 @@ struct MyHandler : public AHandler {
                 request.append("\r\n");
 
                 request.append(
-                        StringPrintf(
+                        AStringPrintf(
                             "Range: npt=%lld-\r\n", timeUs / 1000000ll));
 
                 request.append("\r\n");
