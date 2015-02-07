@@ -167,8 +167,6 @@ struct ExtendedUtils {
 
         //helper function to parse rtp port range form system property
         static void getRtpPortRange(unsigned *start, unsigned *end);
-
-        static bool getSTAProxyConfig(int32_t &port);
     };
 
     struct RTSPStream {
