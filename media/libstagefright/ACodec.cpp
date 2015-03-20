@@ -1814,7 +1814,11 @@ status_t ACodec::configureCodec(
         if (!msg->findInt32("channel-count", &numChannels)) {
             err = INVALID_OPERATION;
         } else {
-            err = setupG711Codec(encoder, numChannels);
+            int32_t sampleRate;
+            if (!msg->findInt32("sample-rate", &sampleRate)) {
+                sampleRate = 8000;
+            }
+            err = setupG711Codec(encoder, sampleRate, numChannels);
         }
     } else if (encoder && !strcasecmp(mime, MEDIA_MIMETYPE_AUDIO_FLAC)) {
         int32_t numChannels = 0, sampleRate = 0, compressionLevel = -1;
@@ -2297,11 +2301,11 @@ status_t ACodec::setupAMRCodec(bool encoder, bool isWAMR, int32_t bitrate) {
             1 /* numChannels */, 16);
 }
 
-status_t ACodec::setupG711Codec(bool encoder, int32_t numChannels) {
+status_t ACodec::setupG711Codec(bool encoder, int32_t sampleRate, int32_t numChannels) {
     CHECK(!encoder);  // XXX TODO
 
     return setupRawAudioFormat(
-            kPortIndexInput, 8000 /* sampleRate */, numChannels, 16);
+            kPortIndexInput, sampleRate, numChannels);
 }
 
 status_t ACodec::setupFlacCodec(
