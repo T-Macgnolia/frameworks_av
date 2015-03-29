@@ -2,8 +2,10 @@ LOCAL_PATH:= $(call my-dir)
 
 ifeq ($(call is-vendor-board-platform,QCOM),true)
 
+ifeq ($(call is-board-platform-in-list, apq8084 msm8974 msm8226 msm8610),true)
 ifneq ($(strip $(AUDIO_FEATURE_ENABLED_COMPRESS_VOIP)),false)
 common_cflags += -DAUDIO_EXTN_COMPRESS_VOIP_ENABLED
+endif
 endif
 
 ifneq ($(strip $(AUDIO_FEATURE_ENABLED_EXTN_FORMATS)),false)
@@ -18,8 +20,10 @@ ifeq ($(strip $(AUDIO_FEATURE_ENABLED_HDMI_SPK)),true)
 common_cflags += -DAUDIO_EXTN_HDMI_SPK_ENABLED
 endif
 
+ifeq ($(strip $(AUDIO_FEATURE_ENABLED_MULTI_VOICE_SESSIONS)),true)
 ifneq ($(strip $(AUDIO_FEATURE_ENABLED_INCALL_MUSIC)),false)
 common_cflags += -DAUDIO_EXTN_INCALL_MUSIC_ENABLED
+endif
 endif
 
 ifeq ($(strip $(AUDIO_FEATURE_ENABLED_MULTIPLE_TUNNEL)), true)
@@ -54,11 +58,16 @@ ifeq ($(strip $(DOLBY_DAP)),true)
     endif
 endif #DOLBY_END
 
+ifeq ($(strip $(AUDIO_FEATURE_ENABLED_HDMI_PASSTHROUGH)),true)
+common_cflags += -DHDMI_PASSTHROUGH_ENABLED
+endif
+
 ifeq ($(TARGET_ENABLE_QC_AV_ENHANCEMENTS),true)
 common_cflags += -DENABLE_AV_ENHANCEMENTS
 endif
 
 endif
+
 
 include $(CLEAR_VARS)
 
@@ -90,7 +99,8 @@ LOCAL_SHARED_LIBRARIES := \
     libbinder \
     libmedia \
     libhardware \
-    libhardware_legacy
+    libhardware_legacy \
+    libserviceutility
 
 ifneq ($(USE_LEGACY_AUDIO_POLICY), 1)
 LOCAL_SHARED_LIBRARIES += \
@@ -102,13 +112,10 @@ ifeq ($(BOARD_HAVE_PRE_KITKAT_AUDIO_POLICY_BLOB),true)
 endif
 
 LOCAL_STATIC_LIBRARIES := \
-    libmedia_helper \
-    libserviceutility
+    libmedia_helper
 
+LOCAL_MODULE := libaudiopolicyservice
 LOCAL_CFLAGS += $(common_cflags)
-
-LOCAL_MODULE:= libaudiopolicyservice
-
 LOCAL_CFLAGS += -fvisibility=hidden
 
 include $(BUILD_SHARED_LIBRARY)
@@ -130,9 +137,15 @@ LOCAL_SHARED_LIBRARIES := \
 LOCAL_STATIC_LIBRARIES := \
     libmedia_helper
 
+ifeq ($(strip $(AUDIO_FEATURE_ENABLED_DTS_EAGLE)),true)
+  LOCAL_CFLAGS += -DDTS_EAGLE
+  LOCAL_C_INCLUDES += $(TARGET_OUT_INTERMEDIATES)/KERNEL_OBJ/usr/include
+  LOCAL_SRC_FILES += AudioUtil.c
+endif
+
 LOCAL_CFLAGS += $(common_cflags)
 
-LOCAL_MODULE:= libaudiopolicymanagerdefault
+LOCAL_MODULE := libaudiopolicymanagerdefault
 
 include $(BUILD_SHARED_LIBRARY)
 
@@ -146,11 +159,14 @@ LOCAL_SRC_FILES:= \
 LOCAL_SHARED_LIBRARIES := \
     libaudiopolicymanagerdefault
 
-LOCAL_MODULE:= libaudiopolicymanager
+LOCAL_MODULE := libaudiopolicymanager
+
+LOCAL_CFLAGS += $(common_cflags)
 
 LOCAL_CFLAGS += $(common_cflags)
 
 include $(BUILD_SHARED_LIBRARY)
 
 endif
+
 endif

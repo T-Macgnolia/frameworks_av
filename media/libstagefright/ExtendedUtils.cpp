@@ -784,10 +784,16 @@ bool ExtendedUtils::ShellProp::isAudioDisabled(bool isEncoder) {
     property_get("persist.debug.sf.noaudio", disableAudio, "0");
     if (isEncoder && (atoi(disableAudio) & 0x02)) {
         retVal = true;
-    } else if (atoi(disableAudio) & 0x01) {
+    } else if (!isEncoder && atoi(disableAudio) & 0x01) {
         retVal = true;
     }
     return retVal;
+}
+
+bool ExtendedUtils::ShellProp::isVideoRenderingDisabled() {
+    char disableVideoRendering[PROPERTY_VALUE_MAX];
+    property_get("persist.debug.sf.nodisplay", disableVideoRendering, "0");
+    return atoi(disableVideoRendering) > 0 ? true : false;
 }
 
 void ExtendedUtils::ShellProp::setEncoderProfile(
@@ -943,6 +949,25 @@ void ExtendedUtils::setBFrames(
     return;
 }
 
+sp<MetaData> ExtendedUtils::updatePCMFormatAndBitwidth(
+                sp<MediaSource> &audioSource, bool offloadAudio)
+{
+    sp<MetaData> tempMetadata = new MetaData;
+    sp<MetaData> format = audioSource->getFormat();
+    int bitWidth = 16;
+    format->findInt32(kKeyBitsPerSample, &bitWidth);
+    tempMetadata->setInt32(kKeyBitsPerSample, bitWidth);
+    tempMetadata->setInt32(kKeyPcmFormat, AUDIO_FORMAT_PCM_16_BIT);
+    char prop_pcmoffload[PROPERTY_VALUE_MAX] = {0};
+    property_get("audio.offload.pcm.24bit.enable", prop_pcmoffload, "0");
+    if ((offloadAudio) &&
+        (24 == bitWidth) &&
+        (!strcmp(prop_pcmoffload, "true") || atoi(prop_pcmoffload))) {
+        tempMetadata->setInt32(kKeyPcmFormat, AUDIO_FORMAT_PCM_8_24_BIT);
+    }
+    return tempMetadata;
+}
+
 /*
 QCOM HW AAC encoder allowed bitrates
 ------------------------------------------------------------------------------------------------------------------
@@ -1005,6 +1030,24 @@ bool ExtendedUtils::UseQCHWAACEncoder(audio_encoder Encoder,int32_t Channel,int3
     return mIsQCHWAACEncoder;
 }
 
+bool ExtendedUtils::is24bitPCMOffloadEnabled() {
+    char propPCMOfload[PROPERTY_VALUE_MAX] = {0};
+    property_get("audio.offload.pcm.24bit.enable", propPCMOfload, "0");
+    if (!strncmp(propPCMOfload, "true", 4) || atoi(propPCMOfload))
+        return true;
+    else
+        return false;
+}
+
+bool ExtendedUtils::is16bitPCMOffloadEnabled() {
+    char propPCMOfload[PROPERTY_VALUE_MAX] = {0};
+    property_get("audio.offload.pcm.16bit.enable", propPCMOfload, "0");
+    if (!strncmp(propPCMOfload, "true", 4) || atoi(propPCMOfload))
+        return true;
+    else
+        return false;
+}
+
 bool ExtendedUtils::isRAWFormat(const sp<MetaData> &meta) {
     const char *mime = {0};
     if (meta == NULL) {
@@ -1029,16 +1072,35 @@ bool ExtendedUtils::isRAWFormat(const sp<AMessage> &format) {
         return false;
 }
 
-bool ExtendedUtils::UseQCHWAACDecoder(const char *mime) {
-    if (!strncmp(mime, MEDIA_MIMETYPE_AUDIO_AAC, strlen(MEDIA_MIMETYPE_AUDIO_AAC))) {
-        char value[PROPERTY_VALUE_MAX] = {0};
-        if (property_get("media.aaccodectype", value, 0) && (atoi(value) == 1)) {
-            return true;
-        }
+int32_t ExtendedUtils::getPcmSampleBits(const sp<MetaData> &meta) {
+    int32_t bitWidth = 16;
+    if (meta != NULL) {
+        meta->findInt32(kKeyBitsPerSample, &bitWidth);
     }
-    return false;
+    return bitWidth;
 }
 
+int32_t ExtendedUtils::getPcmSampleBits(const sp<AMessage> &format) {
+    int32_t bitWidth = 16;
+    if (format != NULL) {
+        format->findInt32("sbit", &bitWidth);
+    }
+    return bitWidth;
+}
+
+int32_t ExtendedUtils::getPCMFormat(const sp<MetaData> &meta) {
+    int32_t pcmFormat = AUDIO_FORMAT_PCM_16_BIT;
+    if (meta != NULL) {
+        meta->findInt32(kKeyPcmFormat, &pcmFormat);
+    }
+    return pcmFormat;
+}
+
+void ExtendedUtils::setKeyPCMFormat(const sp<MetaData> &meta, int32_t pcmFormat) {
+    if (meta != NULL) {
+        meta->setInt32(kKeyPcmFormat, pcmFormat);
+    }
+}
 
 //- returns NULL if we dont really need a new extractor (or cannot),
 //  valid extractor is returned otherwise
@@ -1077,9 +1139,9 @@ sp<MediaExtractor> ExtendedUtils::MediaExtractor_CreateIfNeeded(sp<MediaExtracto
             String8 mime = String8(_mime);
 
             const char * dolbyFormats[ ] = {
-#ifdef DOLBY_UDC
                 MEDIA_MIMETYPE_AUDIO_AC3,
                 MEDIA_MIMETYPE_AUDIO_EAC3,
+#ifdef DOLBY_UDC
                 MEDIA_MIMETYPE_AUDIO_EAC3_JOC,
 #endif
             };
@@ -1166,9 +1228,9 @@ sp<MediaExtractor> ExtendedUtils::MediaExtractor_CreateIfNeeded(sp<MediaExtracto
     const char * extFormats[ ] = {
         MEDIA_MIMETYPE_AUDIO_AMR_WB_PLUS,
         MEDIA_MIMETYPE_VIDEO_HEVC,
+#ifdef DOLBY_UDC
         MEDIA_MIMETYPE_AUDIO_AC3,
         MEDIA_MIMETYPE_AUDIO_EAC3,
-#ifdef DOLBY_UDC
         MEDIA_MIMETYPE_AUDIO_EAC3_JOC,
 #endif
         MEDIA_MIMETYPE_AUDIO_AAC,
@@ -1526,15 +1588,21 @@ bool ExtendedUtils::RTSPStream::ParseURL_V6(
     ssize_t bracketEnd = host->find("]");
     ALOGI("ExtendedUtils::ParseURL_V6() : host->c_str() = %s", host->c_str());
 
-    if (bracketEnd > 0) {
-        if (host->find(":", bracketEnd) == bracketEnd + 1) {
-            *colonPos = host->c_str() + bracketEnd + 1;
-        }
-    } else {
+    if (bracketEnd <= 0) {
         return false;
     }
 
-    host->erase(bracketEnd, host->size() - bracketEnd);
+    // If there is a port present, leave it for parsing in ParseURL
+    // otherwise, remove all trailing characters in the hostname
+    size_t trailing = host->size() - bracketEnd;
+    if (host->find(":", bracketEnd) == bracketEnd + 1) {
+        // 2 characters must be subtracted to account for the removal of
+        // the starting and ending brackets below --> bracketEnd + 1 - 2
+        *colonPos = host->c_str() + bracketEnd - 1;
+        trailing = 1;
+    }
+
+    host->erase(bracketEnd, trailing);
     host->erase(0, 1);
 
     return true;
@@ -1814,6 +1882,11 @@ bool ExtendedUtils::pcmOffloadException(const char* const mime) {
     if (!isPcmOffloadEnabled())
         return true;
 
+    if (!mime) {
+        ALOGV("%s: no audio mime present, ignoring pcm offload", __func__);
+        return true;
+    }
+
     const char * const ExceptionTable[] = {
         MEDIA_MIMETYPE_AUDIO_AMR_NB,
         MEDIA_MIMETYPE_AUDIO_AMR_WB,
@@ -1837,16 +1910,18 @@ bool ExtendedUtils::pcmOffloadException(const char* const mime) {
 sp<MetaData> ExtendedUtils::createPCMMetaFromSource(
                 const sp<MetaData> &sMeta)
 {
-
     sp<MetaData> tPCMMeta = new MetaData;
     //hard code as RAW
     tPCMMeta->setCString(kKeyMIMEType, MEDIA_MIMETYPE_AUDIO_RAW);
 
-    int32_t bitsPerSample = 16;
-    if (!sMeta->findInt32(kKeyBitsPerSample, &bitsPerSample)) {
-        ALOGI("Bits per sample not set, default to 16");
+    //TODO: remove this hard coding and use the meta info, but the issue
+    //is that decoder does not provide this info for now
+    tPCMMeta->setInt32(kKeyBitsPerSample, 16);
+
+    if (sMeta == NULL) {
+        ALOGW("no meta returning dummy meta");
+        return tPCMMeta;
     }
-    tPCMMeta->setInt32(kKeyBitsPerSample, bitsPerSample);
 
     int32_t srate = -1;
     if (!sMeta->findInt32(kKeySampleRate, &srate)) {
@@ -1894,8 +1969,6 @@ void ExtendedUtils::overWriteAudioFormat(
     int32_t schannels = 0;
     int32_t drate = 0;
     int32_t srate = 0;
-    int32_t dbits = 16;
-    int32_t sbits = 16;
 
     dst->findInt32("channel-count", &dchannels);
     src->findInt32("channel-count", &schannels);
@@ -1903,12 +1976,8 @@ void ExtendedUtils::overWriteAudioFormat(
     dst->findInt32("sample-rate", &drate);
     src->findInt32("sample-rate", &srate);
 
-    dst->findInt32("bits-per-sample", &dbits);
-    src->findInt32("bits-per-sample", &sbits);
-
-    ALOGV("channel count src: %d dst: %d", dchannels, schannels);
-    ALOGV("sample rate src: %d dst:%d ", drate, srate);
-    ALOGV("bits per sample src: %d dst: %d", dbits, sbits);
+    ALOGI("channel count src: %d dst: %d", dchannels, schannels);
+    ALOGI("sample rate src: %d dst:%d ", drate, srate);
 
     if (schannels && dchannels != schannels) {
         dst->setInt32("channel-count", schannels);
@@ -1918,211 +1987,44 @@ void ExtendedUtils::overWriteAudioFormat(
         dst->setInt32("sample-rate", srate);
     }
 
-    if (sbits && dbits != sbits) {
-        dst->setInt32("bits-per-sample", sbits);
-    }
-
     return;
 }
 
-int32_t ExtendedUtils::getEncoderTypeFlags() {
-    int32_t flags = 0;
 
-    char mDeviceName[PROPERTY_VALUE_MAX];
-    property_get("ro.board.platform", mDeviceName, "0");
-    if (!strncmp(mDeviceName, "msm8909", 7)) {
-        flags |= OMXCodec::kHardwareCodecsOnly;
+bool ExtendedUtils::is24bitPCMOffloaded(const sp<MetaData> &sMeta) {
+    bool decision = false;
+
+    if (sMeta == NULL) {
+        return decision;
     }
 
-    return flags;
-}
+   /* Return true, if
+      1. 24 bit offload flag is enabled
+      2. the bit stream is raw 
+      3. this is a 24 bit PCM */
 
-void ExtendedUtils::cacheCaptureBuffers(sp<ICamera> camera, video_encoder encoder) {
-    if (camera != NULL) {
-        char mDeviceName[PROPERTY_VALUE_MAX];
-        property_get("ro.board.platform", mDeviceName, "0");
-        if (!strncmp(mDeviceName, "msm8909", 7)) {
-            int64_t token = IPCThreadState::self()->clearCallingIdentity();
-            String8 s = camera->getParameters();
-            CameraParameters params(s);
-            const char *enable;
-            if (encoder == VIDEO_ENCODER_H263 ||
-                encoder == VIDEO_ENCODER_MPEG_4_SP) {
-                enable = "1";
-            } else {
-                enable = "0";
-            }
-            params.set("cache-video-buffers", enable);
-            if (camera->setParameters(params.flatten()) != OK) {
-                ALOGE("Failed to enabled cached camera buffers");
-            }
-            IPCThreadState::self()->restoreCallingIdentity(token);
-        }
-    }
-}
-
-void ExtendedUtils::detectAndPostImage(const sp<ABuffer> accessUnit,
-        const sp<AMessage> &notify) {
-    if (accessUnit == NULL || notify == NULL)
-        return;
-    sp<RefBase> obj;
-    if (accessUnit->meta()->findObject("format", &obj) && obj != NULL) {
-        sp<MetaData> format = static_cast<MetaData*>(obj.get());
-        const void* data;
-        uint32_t type;
-        size_t size;
-        if (format->findData(kKeyAlbumArt, &type, &data, &size)) {
-            ALOGV("found album image");
-            sp<ABuffer> imagebuffer = ABuffer::CreateAsCopy(data, size);
-            notify->setBuffer("image-buffer", imagebuffer);
-            notify->post();
-            format->remove(kKeyAlbumArt);
-        }
-    }
-}
-
-void ExtendedUtils::showImageInNativeWindow(const sp<AMessage> &msg,
-        const sp<AMessage> &format) {
-    if (msg == NULL || format == NULL)
-        return;
-
-    sp<ABuffer> buffer;
-    if (!msg->findBuffer("image-buffer", &buffer) || buffer == NULL)
-        return;
-
-    sp<RefBase> obj;
-    if (!msg->findObject("native-window", &obj) || obj == NULL)
-        return;
-
-    sp<ANativeWindow> nativeWindow = (static_cast<NativeWindowWrapper *>(obj.get()))->getNativeWindow();
-
-    ALOGV("decode jpeg to rgb565");
-    jpeg_decompress_struct cinfo;
-    jpeg_error_mgr jerr;
-    cinfo.err = jpeg_std_error(&jerr);
-    jpeg_create_decompress(&cinfo);
-    jpeg_mem_src(&cinfo, buffer->data(), buffer->size());
-
-    if (JPEG_HEADER_OK != jpeg_read_header(&cinfo, true)) {
-        ALOGE("failed to decode jpeg header");
-        jpeg_destroy_decompress(&cinfo);
-        return;
+    if (is24bitPCMOffloadEnabled() && isRAWFormat(sMeta) &&
+        getPcmSampleBits(sMeta) == 24) {
+        ALOGV("%s: decided its true for 24 bit PCM offloading", __func__);
+        decision = true;
     }
 
-    cinfo.out_color_space = JCS_RGB_565;
-    if (!jpeg_start_decompress(&cinfo)) {
-        ALOGE("failed to decompress jpeg picture");
-        jpeg_destroy_decompress(&cinfo);
-        return;
-    }
-
-    ALOGV("Picture width = %d, height = %d", cinfo.output_width, cinfo.output_height);
-    size_t stride = cinfo.output_width * 2;
-    size_t dataSize = stride * cinfo.output_height;
-    sp<ABuffer> outBuffer = new ABuffer(dataSize);
-    for (size_t i = 0; i < cinfo.output_height; i++) {
-        JSAMPLE* rowptr = (JSAMPLE*)(outBuffer->data() + stride * i);
-        int32_t row_count = jpeg_read_scanlines(&cinfo, &rowptr, 1);
-        if (row_count == 0) {
-           ALOGV("row_count = 0");
-           cinfo.output_scanline = cinfo.output_height;
-           break;
-        }
-    }
-    size_t bufwidth = cinfo.output_width;
-    size_t bufheight = cinfo.output_height;
-    jpeg_finish_decompress(&cinfo);
-    jpeg_destroy_decompress(&cinfo);
-    ALOGV("finish decoding jpeg");
-
-    int32_t err = 0;
-
-    err = native_window_set_usage(nativeWindow.get(),
-            GRALLOC_USAGE_SW_READ_NEVER | GRALLOC_USAGE_SW_WRITE_OFTEN
-            | GRALLOC_USAGE_HW_TEXTURE | GRALLOC_USAGE_EXTERNAL_DISP);
-    if (err != 0) {
-        ALOGE("native_window_set_usage failed: %d", err);
-        return;
-    }
-    err = native_window_set_scaling_mode(nativeWindow.get(),
-            NATIVE_WINDOW_SCALING_MODE_SCALE_TO_WINDOW);
-    if (err != 0) {
-        ALOGE("native_window_set_scaling_mode failed: %d", err);
-        return;
-    }
-    err = native_window_set_buffers_dimensions(nativeWindow.get(), bufwidth,
-            bufheight);
-    if (err != 0) {
-        ALOGE("native_window_set_buffers_dimensions failed: %d", err);
-        return;
-    }
-    err = native_window_set_buffers_format(nativeWindow.get(),
-            HAL_PIXEL_FORMAT_RGB_565);
-    if (err != 0) {
-        ALOGE("native_window_set_buffers_format failed: %d", err);
-        return;
-    }
-
-    android_native_rect_t crop;
-    crop.left = 0;
-    crop.top = 0;
-    crop.right = bufwidth - 1;
-    crop.bottom = bufheight - 1;
-
-    err = native_window_set_crop(nativeWindow.get(), &crop);
-    if (err != 0) {
-        ALOGE("native_window_set_crop failed: %ld", err);
-        return;
-    }
-
-    err = native_window_set_buffers_transform(
-            nativeWindow.get(), 0);
-    if (err != 0) {
-        ALOGE("native_window_set_buffers_transform failed: %ld", err);
-        return;
-    }
-
-    ANativeWindowBuffer *buf;
-    if ((err = native_window_dequeue_buffer_and_wait(nativeWindow.get(),
-            &buf)) != 0) {
-        ALOGE("native_window_dequeue_buffer_and_wait returned error %d", err);
-        buf = NULL;
-        return;
-    }
-    GraphicBufferMapper &mapper = GraphicBufferMapper::get();
-    Rect bounds(bufwidth, bufheight);
-
-    void *dst;
-    if ((err = mapper.lock(buf->handle, GRALLOC_USAGE_SW_WRITE_OFTEN,
-            bounds, &dst)) != 0) {
-        ALOGE("mapper.lock failed %d", err);
-        buf = NULL;
-        return;
-    }
-
-    memcpy((uint8_t*)dst, outBuffer->data(), dataSize);
-
-    if ((err = mapper.unlock(buf->handle)) != 0) {
-        ALOGE("mapper.unlock failed %d", err);
-        buf = NULL;
-        return;
-    }
-    if ((err = nativeWindow->queueBuffer(nativeWindow.get(), buf,
-            -1)) != 0) {
-        ALOGE("native window queueBuffer returned error %d", err);
-        buf = NULL;
-        return;
-    }
-    buf = NULL;
-    ALOGV("show the image in native window");
-    format->setInt32("width", (int32_t)bufwidth);
-    format->setInt32("height", (int32_t)bufheight);
+    return decision;
 }
 
 }
 #else //ENABLE_AV_ENHANCEMENTS
 
 namespace android {
+
+sp<MetaData> ExtendedUtils::updatePCMFormatAndBitwidth(
+                sp<MediaSource> &audioSource, bool offloadAudio)
+{
+    ARG_TOUCH(audioSource);
+    ARG_TOUCH(offloadAudio);
+    sp<MetaData> tempMetadata = new MetaData;
+    return tempMetadata;
+}
 
 void ExtendedUtils::HFR::setHFRIfEnabled(
         const CameraParameters& params, sp<MetaData> &meta) {
@@ -2172,6 +2074,11 @@ bool ExtendedUtils::IsHevcIDR(const sp<ABuffer> &buffer) {
 }
 
 bool ExtendedUtils::ShellProp::isAudioDisabled(bool isEncoder) {
+    ARG_TOUCH(isEncoder);
+    return false;
+}
+
+bool ExtendedUtils::ShellProp::isVideoRenderingDisabled() {
     return false;
 }
 
@@ -2220,6 +2127,14 @@ bool ExtendedUtils::UseQCHWAACEncoder(audio_encoder Encoder,int32_t Channel,
     return false;
 }
 
+bool ExtendedUtils::is24bitPCMOffloadEnabled() {
+    return false;
+}
+
+bool ExtendedUtils::is16bitPCMOffloadEnabled() {
+    return false;
+}
+
 bool ExtendedUtils::isRAWFormat(const sp<MetaData> &meta) {
     ARG_TOUCH(meta);
     return false;
@@ -2230,9 +2145,24 @@ bool ExtendedUtils::isRAWFormat(const sp<AMessage> &format) {
     return false;
 }
 
-bool ExtendedUtils::UseQCHWAACDecoder(const char *mime) {
-    ARG_TOUCH(mime);
+int32_t ExtendedUtils::getPcmSampleBits(const sp<MetaData> &meta) {
+    ARG_TOUCH(meta);
+    return 16;
+}
+
+int32_t ExtendedUtils::getPcmSampleBits(const sp<AMessage> &format) {
+    ARG_TOUCH(format);
+    return 16;
+}
+
+int32_t ExtendedUtils::getPCMFormat(const sp<MetaData> &meta) {
+    ARG_TOUCH(meta);
     return false;
+}
+
+void ExtendedUtils::setKeyPCMFormat(const sp<MetaData> &meta, int32_t pcmFormat) {
+    ARG_TOUCH(meta);
+    ARG_TOUCH(pcmFormat);
 }
 
 sp<MediaExtractor> ExtendedUtils::MediaExtractor_CreateIfNeeded(
@@ -2397,6 +2327,12 @@ void ExtendedUtils::overWriteAudioFormat(
     ARG_TOUCH(dst);
     ARG_TOUCH(src);
     return;
+}
+
+bool ExtendedUtils::is24bitPCMOffloaded(const sp<MetaData> &sMeta) {
+    ARG_TOUCH(sMeta);
+
+    return false;
 }
 
 } // namespace android

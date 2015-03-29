@@ -93,7 +93,7 @@ int AwesomePlayer::mTunnelAliveAP = 0;
 
 // maximum time in paused state when offloading audio decompression. When elapsed, the AudioPlayer
 // is destroyed to allow the audio DSP to power down.
-static int64_t kOffloadPauseMaxUs = 60000000ll;
+static int64_t kOffloadPauseMaxUs = 10000000ll;
 
 
 struct AwesomeEvent : public TimedEventQueue::Event {
@@ -436,7 +436,8 @@ void AwesomePlayer::printFileName(int fd) {
 status_t AwesomePlayer::setDataSource(
         int fd, int64_t offset, int64_t length) {
     Mutex::Autolock autoLock(mLock);
-
+    ALOGD("Before reset_l");
+    
     reset_l();
 
     ExtendedStats::AutoProfile autoProfile(
@@ -1034,6 +1035,16 @@ void AwesomePlayer::onStreamDone() {
         return;
     }
 
+    if (mFlags & AUTO_LOOPING) {
+        audio_stream_type_t streamType = AUDIO_STREAM_MUSIC;
+        if (mAudioSink != NULL) {
+            streamType = mAudioSink->getAudioStreamType();
+        }
+        if (streamType == AUDIO_STREAM_NOTIFICATION) {
+            ALOGW("disabling auto-loop for notification");
+            modifyFlags(AUTO_LOOPING, CLEAR);
+        }
+    }
     if ((mFlags & LOOPING)
             || ((mFlags & AUTO_LOOPING)
                 && (mAudioSink == NULL || mAudioSink->realtime()))) {
@@ -1227,9 +1238,20 @@ status_t AwesomePlayer::fallbackToSWDecoder() {
     }
 #endif
     mOffloadAudio = false;
-    mAudioSource = mOmxSource;
+    const char * mime;
+    sp<MetaData> tempMetadata;
+    sp<MetaData> format = mAudioTrack->getFormat();
+    CHECK(format->findCString(kKeyMIMEType, &mime));
+    if (!strcasecmp(mime, MEDIA_MIMETYPE_AUDIO_RAW)) {
+        mAudioSource = mAudioTrack;
+        tempMetadata = ExtendedUtils::updatePCMFormatAndBitwidth(mAudioTrack,
+                                                                mOffloadAudio);
+    } else {
+        mAudioSource = mOmxSource;
+    }
+
     if (mAudioSource != NULL) {
-        if ((err = mAudioSource->start()) == OK) {
+        if ((err = mAudioSource->start(tempMetadata.get())) == OK) {
             mSeekNotificationSent = true;
             if (mExtractorFlags & MediaExtractor::CAN_SEEK) {
                 seekTo_l(curTimeUs);
@@ -1241,6 +1263,7 @@ status_t AwesomePlayer::fallbackToSWDecoder() {
             mOmxSource.clear();
         }
     }
+    tempMetadata.clear();
 
     return err;
 }
@@ -1929,7 +1952,11 @@ status_t AwesomePlayer::initAudioDecoder() {
             mOmxSource = mAudioSource;
         }
     } else {
+        // If offloading we still create a OMX decoder as a fall-back
+        // but we don't start it
+        mAudioTrack->getFormat()->setPointer(ExtendedStats::MEDIA_STATS_FLAG, mPlayerExtendedStats.get());
 
+        // For LPA Playback use the decoder without OMX layer
         char *matchComponentName = NULL;
         uint32_t flags = 0;
         if (mIsTunnelAudio
@@ -2042,13 +2069,19 @@ status_t AwesomePlayer::initAudioDecoder() {
             }
         }
 
-        err = mAudioSource->start();
+    sp<MetaData> tempMetadata;
+    if (!strcasecmp(mime, MEDIA_MIMETYPE_AUDIO_RAW)) {
+        tempMetadata = ExtendedUtils::updatePCMFormatAndBitwidth(mAudioSource,
+                                                                mOffloadAudio);
+    }
+    err = mAudioSource->start(tempMetadata.get());
+    tempMetadata.clear();
 
-        if (err != OK) {
-            mAudioSource.clear();
-            mOmxSource.clear();
-            return err;
-        }
+    if (err != OK) {
+        mAudioSource.clear();
+        mOmxSource.clear();
+        return err;
+    }
     } else if (!strcasecmp(mime, MEDIA_MIMETYPE_AUDIO_QCELP)) {
         // For legacy reasons we're simply going to ignore the absence
         // of an audio decoder for QCELP instead of aborting playback

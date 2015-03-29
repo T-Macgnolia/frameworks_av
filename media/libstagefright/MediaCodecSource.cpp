@@ -451,30 +451,8 @@ status_t MediaCodecSource::initEncoder() {
     {
         ExtendedStats::AutoProfile autoProfile(
                 STATS_PROFILE_ALLOCATE_NODE(mIsVideo), mRecorderExtendedStats);
-
-#ifdef ENABLE_AV_ENHANCEMENTS
-        Vector<OMXCodec::CodecNameAndQuirks> matchingCodecs;
-        if (mIsVideo && (mFlags & OMXCodec::kHardwareCodecsOnly)) {
-
-            OMXCodec::findMatchingCodecs(
-                    outputMIME.c_str(),
-                    true, // createEncoder
-                    NULL,  // matchComponentName
-                    OMXCodec::kHardwareCodecsOnly,     // flags
-                    &matchingCodecs);
-        }
-        if (matchingCodecs.size() > 0) {
-            componentName = matchingCodecs.itemAt(0).mName.string();
-            mEncoder = MediaCodec::CreateByComponentName(
-                    mCodecLooper, componentName.c_str());
-        } else {
-            mEncoder = MediaCodec::CreateByType(
-                    mCodecLooper, outputMIME.c_str(), true /* encoder */);
-        }
-#else
         mEncoder = MediaCodec::CreateByType(
                 mCodecLooper, outputMIME.c_str(), true /* encoder */);
-#endif
     }
 
     if (mEncoder == NULL) {
@@ -797,7 +775,7 @@ void MediaCodecSource::onMessageReceived(const sp<AMessage> &msg) {
             status_t err = mEncoder->getOutputBuffer(index, &outbuf);
             if (err != OK || outbuf == NULL) {
                 signalEOS();
-                    break;
+                break;
             }
 
             MediaBuffer *mbuf = new MediaBuffer(outbuf->size());
@@ -852,14 +830,14 @@ void MediaCodecSource::onMessageReceived(const sp<AMessage> &msg) {
             }
 
             mEncoder->releaseOutputBuffer(index);
-        } else if (cbID == MediaCodec::CB_ERROR) {
+       } else if (cbID == MediaCodec::CB_ERROR) {
             status_t err;
             CHECK(msg->findInt32("err", &err));
             ALOGE("Encoder (%s) reported error : 0x%x",
                     mIsVideo ? "video" : "audio", err);
             signalEOS();
-        }
-        break;
+       }
+       break;
     }
     case kWhatStart:
     {

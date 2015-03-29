@@ -136,6 +136,7 @@ static int32_t getColorFormat(const char* colorFormat) {
          "CameraSource::getColorFormat", colorFormat);
 
     CHECK(!"Unknown color format");
+    return -1;
 }
 
 CameraSource *CameraSource::Create(const String16 &clientName) {
@@ -702,6 +703,8 @@ status_t CameraSource::pause() {
     mRecPause = true;
     mPauseStartTimeUs = mLastFrameTimestampUs;
     RECORDER_STATS(notifyPause, mPauseStartTimeUs);
+    //record the end time too, or there is a risk the end time is 0
+    mPauseEndTimeUs = mLastFrameTimestampUs;
     ALOGV("pause : mPauseStart %lld us, #Queued Frames : %d",
         mPauseStartTimeUs, mFramesReceived.size());
     return OK;
@@ -788,7 +791,6 @@ status_t CameraSource::reset() {
         if (mNumGlitches > 0) {
             ALOGW("%d long delays between neighboring video frames", mNumGlitches);
         }
-
         CHECK_EQ(mNumFramesReceived, mNumFramesEncoded + mNumFramesDropped);
     }
 
@@ -904,6 +906,13 @@ void CameraSource::dataCallbackTimestamp(int64_t timestampUs,
         return;
     }
 
+    // May need to skip frame or modify timestamp. Currently implemented
+    // by the subclass CameraSourceTimeLapse.
+    if (skipCurrentFrame(timestampUs)) {
+        releaseOneRecordingFrame(data);
+        return;
+    }
+
     if (mRecPause == true) {
         if(!mFramesReceived.empty()) {
             ALOGV("releaseQueuedFrames - #Queued Frames : %d", mFramesReceived.size());
@@ -922,13 +931,6 @@ void CameraSource::dataCallbackTimestamp(int64_t timestampUs,
         if (timestampUs - mLastFrameTimestampUs > mGlitchDurationThresholdUs) {
             ++mNumGlitches;
         }
-    }
-
-    // May need to skip frame or modify timestamp. Currently implemented
-    // by the subclass CameraSourceTimeLapse.
-    if (skipCurrentFrame(timestampUs)) {
-        releaseOneRecordingFrame(data);
-        return;
     }
 
     mLastFrameTimestampUs = timestampUs;

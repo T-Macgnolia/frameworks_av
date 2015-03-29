@@ -291,8 +291,8 @@ status_t NuMediaExtractor::selectTrack(size_t index) {
         sp<MediaSource> mFlacSource = new FLACDecoder(source);
         info->mSource = mFlacSource;
         mFlacSource->start();
-    }
-#else
+    } else
+#endif
     {
         CHECK_EQ((status_t)OK, source->start());
         info->mSource = source;

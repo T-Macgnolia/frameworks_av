@@ -11,6 +11,43 @@
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
  * See the License for the specific language governing permissions and
  * limitations under the License.
+ *
+ * This file was modified by Dolby Laboratories, Inc. The portions of the
+ * code that are surrounded by "DOLBY..." are copyrighted and
+ * licensed separately, as follows:
+ *
+ *  (C) 2011-2014 Dolby Laboratories, Inc.
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *    http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ *
+ **
+ ** This file was modified by DTS, Inc. The portions of the
+ ** code that are surrounded by "DTS..." are copyrighted and
+ ** licensed separately, as follows:
+ **
+ **  (C) 2014 DTS, Inc.
+ **
+ ** Licensed under the Apache License, Version 2.0 (the "License");
+ ** you may not use this file except in compliance with the License.
+ ** You may obtain a copy of the License at
+ **
+ **    http://www.apache.org/licenses/LICENSE-2.0
+ **
+ ** Unless required by applicable law or agreed to in writing, software
+ ** distributed under the License is distributed on an "AS IS" BASIS,
+ ** WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ ** See the License for the specific language governing permissions and
+ ** limitations under the License
  */
 
 #include <inttypes.h>
@@ -48,14 +85,21 @@
 #include <media/stagefright/SkipCutBuffer.h>
 #include <utils/Vector.h>
 
-#include <OMX_Audio.h>
 #include <OMX_AudioExt.h>
 #include <OMX_Component.h>
 #include <OMX_IndexExt.h>
+#include <OMX_VideoExt.h>
+#include <OMX_AsString.h>
 
 #include "include/ExtendedUtils.h"
 
 #include "include/avc_utils.h"
+#ifdef DOLBY_UDC
+#include "ds_config.h"
+#endif // DOLBY_END
+
+#include <media/stagefright/ExtendedCodec.h>
+#include <media/stagefright/FFMPEGSoftCodec.h>
 
 #include <media/stagefright/ExtendedCodec.h>
 #include <media/stagefright/FFMPEGSoftCodec.h>
@@ -64,6 +108,10 @@
 #include <QCMediaDefs.h>
 #include <QCMetaData.h>
 #include <QOMX_AudioExtensions.h>
+#endif
+#ifdef DTS_CODEC_M_
+#include "include/DTSUtils.h"
+#include "include/OMX_Audio_DTS.h"
 #endif
 
 #ifdef QTI_FLAC_DECODER
@@ -219,9 +267,13 @@ static void InitOMXParams(T *params) {
 }
 
 static bool IsSoftwareCodec(const char *componentName) {
+#ifdef DOLBY_UDC
+    if (!strncmp("OMX.dolby.", componentName, 10)) {
+        return true;
+    }
+#endif // DOLBY_END
     if (!strncmp("OMX.google.", componentName, 11)
-        || !strncmp("OMX.ffmpeg.", componentName, 11)
-        || !strncmp("OMX.PV.", componentName, 7)) {
+        || !strncmp("OMX.ffmpeg.", componentName, 11)) {
         return true;
     }
 
@@ -282,7 +334,7 @@ void OMXCodec::findMatchingCodecs(
     size_t index = 0;
 
 #ifdef ENABLE_AV_ENHANCEMENTS
-    //Check if application specially reuqested for aac hardware encoder/decoder
+    //Check if application specially reuqested for  aac hardware encoder
     //This is not a part of  mediacodec list
     if (matchComponentName &&
             !strncmp("OMX.qcom.audio.encoder.aac", matchComponentName, 26)) {
@@ -304,17 +356,6 @@ void OMXCodec::findMatchingCodecs(
             return;
     }
 #endif
-
-    if (matchComponentName &&
-            !strncmp("OMX.qcom.audio.decoder.multiaac", matchComponentName, 31)) {
-        matchingCodecs->add();
-
-        CodecNameAndQuirks *entry = &matchingCodecs->editItemAt(index);
-        entry->mName = String8("OMX.qcom.audio.decoder.multiaac");
-        entry->mQuirks |= kRequiresAllocateBufferOnInputPorts;
-        entry->mQuirks |= kRequiresAllocateBufferOnOutputPorts;
-        return;
-    }
 #endif
 
     for (;;) {
@@ -383,6 +424,15 @@ uint32_t OMXCodec::getComponentQuirks(
     quirks |= ExtendedCodec::getComponentQuirks(info);
 #endif
 
+#ifdef DOLBY_UDC
+    if (info->hasQuirk("needs-flush-before-disable")) {
+        quirks |= kNeedsFlushBeforeDisable;
+    }
+    if (info->hasQuirk("requires-flush-complete-emulation")) {
+        quirks |= kRequiresFlushCompleteEmulation;
+    }
+#endif // DOLBY_END
+
     return quirks;
 }
 
@@ -407,17 +457,6 @@ bool OMXCodec::findCodecQuirks(const char *componentName, uint32_t *quirks) {
     if (index < 0) {
         return false;
     }
-
-#ifdef ENABLE_AV_ENHANCEMENTS
-    //Check for aac hardware decoder
-    //This is not a part of  mediacodec list
-    if (componentName &&
-            !strncmp("OMX.qcom.audio.decoder.multiaac", componentName, 31)) {
-        *quirks |= kRequiresAllocateBufferOnInputPorts;
-        *quirks |= kRequiresAllocateBufferOnOutputPorts;
-        return true;
-    }
-#endif
 
     const sp<MediaCodecInfo> info = list->getCodecInfo(index);
     CHECK(info != NULL);
@@ -455,14 +494,8 @@ sp<MediaSource> OMXCodec::Create(
             "FLACDecoder", flags, &matchingCodecs);
     } else
 #endif
-    if (!strncmp(mime, MEDIA_MIMETYPE_AUDIO_AAC, 15) &&
-            ExtendedUtils::UseQCHWAACDecoder(mime)) {
-        findMatchingCodecs(mime, createEncoder,
-            "OMX.qcom.audio.decoder.multiaac", flags, &matchingCodecs);
-    } else {
         findMatchingCodecs(
             mime, createEncoder, matchComponentName, flags, &matchingCodecs);
-    }
 
     if (matchingCodecs.isEmpty()) {
         ALOGV("No matching codecs! (mime: %s, createEncoder: %s, "
@@ -862,6 +895,19 @@ status_t OMXCodec::configureCodec(const sp<MetaData> &meta) {
         CHECK(meta->findInt32(kKeySampleRate, &sampleRate));
 
         setRawAudioFormat(kPortIndexInput, sampleRate, numChannels);
+#ifdef DTS_CODEC_M_
+    } else if (!strcasecmp(MEDIA_MIMETYPE_AUDIO_DTS, mMIME)) {
+        ALOGV(" (DTS) mime == MEDIA_MIMETYPE_AUDIO_DTS");
+        int32_t numChannels, sampleRate;
+        CHECK(meta->findInt32(kKeyChannelCount, &numChannels));
+        CHECK(meta->findInt32(kKeySampleRate, &sampleRate));
+
+        status_t err = DTSUtils::setupDecoder(mOMX, mNode, sampleRate);
+
+        if (err != OK) {
+            return err;
+        }
+#endif
     } else {
         if (mIsEncoder && !mIsVideo) {
             int32_t numChannels, sampleRate;
@@ -1085,6 +1131,7 @@ static size_t getFrameSize(
             CHECK(!"Should not be here. Unsupported color format.");
             break;
     }
+    return 0;
 }
 
 status_t OMXCodec::findTargetColorFormat(
@@ -1775,6 +1822,10 @@ OMXCodec::OMXCodec(
       mSkipCutBuffer(NULL),
       mLeftOverBuffer(NULL),
       mPaused(false),
+#ifdef DOLBY_UDC
+      mDolbyProcessedAudio(false),
+      mDolbyProcessedAudioStateChanged(false),
+#endif // DOLBY_END
       mNativeWindow(
               (!strncmp(componentName, "OMX.google.", 11)
               || !strncmp(componentName, "OMX.ffmpeg.", 11))
@@ -1859,6 +1910,16 @@ void OMXCodec::setComponentRole(
             "video_decoder.mpeg2", "video_encoder.mpeg2" },
         { MEDIA_MIMETYPE_AUDIO_AC3,
             "audio_decoder.ac3", "audio_encoder.ac3" },
+#ifdef DOLBY_UDC
+        { MEDIA_MIMETYPE_AUDIO_EAC3,
+            "audio_decoder.ec3", NULL },
+        { MEDIA_MIMETYPE_AUDIO_EAC3_JOC,
+            "audio_decoder.ec3_joc", NULL },
+#endif // DOLBY_END
+#ifdef DTS_CODEC_M_
+        { MEDIA_MIMETYPE_AUDIO_DTS,
+            "audio_decoder.dts", "audio_encoder.dts" },
+#endif
     };
 
     static const size_t kNumMimeToRole =
@@ -3013,6 +3074,14 @@ void OMXCodec::onEvent(OMX_EVENTTYPE event, OMX_U32 data1, OMX_U32 data2) {
             break;
         }
 #endif
+#ifdef DOLBY_UDC
+        case OMX_EventDolbyProcessedAudio:
+        {
+            mDolbyProcessedAudio = data1;
+            mDolbyProcessedAudioStateChanged = true;
+            break;
+        }
+#endif // DOLBY_END
 #ifdef USE_S3D_SUPPORT
         case (OMX_EVENTTYPE)OMX_EventS3DInformation:
         {
@@ -4699,6 +4768,14 @@ status_t OMXCodec::read(
         initNativeWindowCrop();
         info->mOutputCropChanged = false;
     }
+#ifdef DOLBY_UDC
+    if (mDolbyProcessedAudioStateChanged) {
+        mDolbyProcessedAudioStateChanged = false;
+        return mDolbyProcessedAudio
+            ? INFO_DOLBY_PROCESSED_AUDIO_START
+            : INFO_DOLBY_PROCESSED_AUDIO_STOP;
+    }
+#endif  // DOLBY_END
     return OK;
 }
 
@@ -4748,291 +4825,6 @@ void OMXCodec::signalBufferReturned(MediaBuffer *buffer) {
     CHECK(!"should not be here.");
 }
 
-static const char *imageCompressionFormatString(OMX_IMAGE_CODINGTYPE type) {
-    static const char *kNames[] = {
-        "OMX_IMAGE_CodingUnused",
-        "OMX_IMAGE_CodingAutoDetect",
-        "OMX_IMAGE_CodingJPEG",
-        "OMX_IMAGE_CodingJPEG2K",
-        "OMX_IMAGE_CodingEXIF",
-        "OMX_IMAGE_CodingTIFF",
-        "OMX_IMAGE_CodingGIF",
-        "OMX_IMAGE_CodingPNG",
-        "OMX_IMAGE_CodingLZW",
-        "OMX_IMAGE_CodingBMP",
-    };
-
-    size_t numNames = sizeof(kNames) / sizeof(kNames[0]);
-
-    if (type < 0 || (size_t)type >= numNames) {
-        return "UNKNOWN";
-    } else {
-        return kNames[type];
-    }
-}
-
-static const char *colorFormatString(OMX_COLOR_FORMATTYPE type) {
-    static const char *kNames[] = {
-        "OMX_COLOR_FormatUnused",
-        "OMX_COLOR_FormatMonochrome",
-        "OMX_COLOR_Format8bitRGB332",
-        "OMX_COLOR_Format12bitRGB444",
-        "OMX_COLOR_Format16bitARGB4444",
-        "OMX_COLOR_Format16bitARGB1555",
-        "OMX_COLOR_Format16bitRGB565",
-        "OMX_COLOR_Format16bitBGR565",
-        "OMX_COLOR_Format18bitRGB666",
-        "OMX_COLOR_Format18bitARGB1665",
-        "OMX_COLOR_Format19bitARGB1666",
-        "OMX_COLOR_Format24bitRGB888",
-        "OMX_COLOR_Format24bitBGR888",
-        "OMX_COLOR_Format24bitARGB1887",
-        "OMX_COLOR_Format25bitARGB1888",
-        "OMX_COLOR_Format32bitBGRA8888",
-        "OMX_COLOR_Format32bitARGB8888",
-        "OMX_COLOR_FormatYUV411Planar",
-        "OMX_COLOR_FormatYUV411PackedPlanar",
-        "OMX_COLOR_FormatYUV420Planar",
-        "OMX_COLOR_FormatYUV420PackedPlanar",
-        "OMX_COLOR_FormatYUV420SemiPlanar",
-        "OMX_COLOR_FormatYUV422Planar",
-        "OMX_COLOR_FormatYUV422PackedPlanar",
-        "OMX_COLOR_FormatYUV422SemiPlanar",
-        "OMX_COLOR_FormatYCbYCr",
-        "OMX_COLOR_FormatYCrYCb",
-        "OMX_COLOR_FormatCbYCrY",
-        "OMX_COLOR_FormatCrYCbY",
-        "OMX_COLOR_FormatYUV444Interleaved",
-        "OMX_COLOR_FormatRawBayer8bit",
-        "OMX_COLOR_FormatRawBayer10bit",
-        "OMX_COLOR_FormatRawBayer8bitcompressed",
-        "OMX_COLOR_FormatL2",
-        "OMX_COLOR_FormatL4",
-        "OMX_COLOR_FormatL8",
-        "OMX_COLOR_FormatL16",
-        "OMX_COLOR_FormatL24",
-        "OMX_COLOR_FormatL32",
-        "OMX_COLOR_FormatYUV420PackedSemiPlanar",
-        "OMX_COLOR_FormatYUV422PackedSemiPlanar",
-        "OMX_COLOR_Format18BitBGR666",
-        "OMX_COLOR_Format24BitARGB6666",
-        "OMX_COLOR_Format24BitABGR6666",
-    };
-
-    size_t numNames = sizeof(kNames) / sizeof(kNames[0]);
-
-    if (type == OMX_TI_COLOR_FormatYUV420PackedSemiPlanar) {
-        return "OMX_TI_COLOR_FormatYUV420PackedSemiPlanar";
-    }
-#ifdef USE_SAMSUNG_COLORFORMAT
-    if (type == OMX_SEC_COLOR_FormatNV12TPhysicalAddress) {
-        return "OMX_SEC_COLOR_FormatNV12TPhysicalAddress";
-    }
-    if (type == OMX_SEC_COLOR_FormatNV12LPhysicalAddress) {
-        return "OMX_SEC_COLOR_FormatNV12LPhysicalAddress";
-    }
-    if (type == OMX_SEC_COLOR_FormatNV12LVirtualAddress) {
-        return "OMX_SEC_COLOR_FormatNV12LVirtualAddress";
-    }
-    if (type == OMX_SEC_COLOR_FormatNV12Tiled) {
-        return "OMX_SEC_COLOR_FormatNV12Tiled";
-    }
-#endif // USE_SAMSUNG_COLORFORMAT
-    else if (type == OMX_QCOM_COLOR_FormatYVU420SemiPlanar) {
-        return "OMX_QCOM_COLOR_FormatYVU420SemiPlanar";
-    } else if (type < 0 || (size_t)type >= numNames) {
-        return "UNKNOWN";
-    } else {
-        return kNames[type];
-    }
-}
-
-static const char *vendorVideoCompressionFormatString(OMX_VIDEO_CODINGTYPE type) {
-    static const char *kVendorNames[] = {
-        "OMX_VIDEO_CodingVendorStartUnused",
-        "OMX_VIDEO_CodingVC1",
-        "OMX_VIDEO_CodingFLV1",
-        "OMX_VIDEO_CodingDIVX",
-        "OMX_VIDEO_CodingHEVC",
-        "OMX_VIDEO_CodingFFMPEG",
-    };
-
-    CHECK_GE(type, OMX_VIDEO_CodingVendorStartUnused);
-
-    size_t index = (size_t)type - (size_t)OMX_VIDEO_CodingVendorStartUnused;
-
-    size_t numNames = sizeof(kVendorNames) / sizeof(kVendorNames[0]);
-
-    if (index >= numNames) {
-        return "UNKNOWN";
-    } else {
-        return kVendorNames[index];
-    }
-}
-
-static const char *videoCompressionFormatString(OMX_VIDEO_CODINGTYPE type) {
-    static const char *kNames[] = {
-        "OMX_VIDEO_CodingUnused",
-        "OMX_VIDEO_CodingAutoDetect",
-        "OMX_VIDEO_CodingMPEG2",
-        "OMX_VIDEO_CodingH263",
-        "OMX_VIDEO_CodingMPEG4",
-        "OMX_VIDEO_CodingWMV",
-        "OMX_VIDEO_CodingRV",
-        "OMX_VIDEO_CodingAVC",
-        "OMX_VIDEO_CodingMJPEG",
-        "OMX_VIDEO_CodingVPX",
-    };
-
-    if (type >= OMX_VIDEO_CodingVendorStartUnused) {
-        return vendorVideoCompressionFormatString(type);
-    }
-
-    size_t numNames = sizeof(kNames) / sizeof(kNames[0]);
-
-    if (type < 0 || (size_t)type >= numNames) {
-        return "UNKNOWN";
-    } else {
-        return kNames[type];
-    }
-}
-
-static const char *vendorAudioCodingTypeString(OMX_AUDIO_CODINGTYPE type) {
-    static const char *kVendorNames[] = {
-        "OMX_AUDIO_CodingVendorStartUnused",
-        "OMX_AUDIO_CodingMP2",
-        "OMX_AUDIO_CodingAC3",
-        "OMX_AUDIO_CodingAPE",
-        "OMX_AUDIO_CodingDTS",
-        "OMX_AUDIO_CodingFFMPEG",
-    };
-
-    CHECK_GE(type, OMX_AUDIO_CodingVendorStartUnused);
-
-    size_t index = (size_t)type - (size_t)OMX_AUDIO_CodingVendorStartUnused;
-
-    size_t numNames = sizeof(kVendorNames) / sizeof(kVendorNames[0]);
-
-    if (index >= numNames) {
-        return "UNKNOWN";
-    } else {
-        return kVendorNames[index];
-    }
-}
-
-static const char *audioCodingTypeString(OMX_AUDIO_CODINGTYPE type) {
-    static const char *kNames[] = {
-        "OMX_AUDIO_CodingUnused",
-        "OMX_AUDIO_CodingAutoDetect",
-        "OMX_AUDIO_CodingPCM",
-        "OMX_AUDIO_CodingADPCM",
-        "OMX_AUDIO_CodingAMR",
-        "OMX_AUDIO_CodingGSMFR",
-        "OMX_AUDIO_CodingGSMEFR",
-        "OMX_AUDIO_CodingGSMHR",
-        "OMX_AUDIO_CodingPDCFR",
-        "OMX_AUDIO_CodingPDCEFR",
-        "OMX_AUDIO_CodingPDCHR",
-        "OMX_AUDIO_CodingTDMAFR",
-        "OMX_AUDIO_CodingTDMAEFR",
-        "OMX_AUDIO_CodingQCELP8",
-        "OMX_AUDIO_CodingQCELP13",
-        "OMX_AUDIO_CodingEVRC",
-        "OMX_AUDIO_CodingSMV",
-        "OMX_AUDIO_CodingG711",
-        "OMX_AUDIO_CodingG723",
-        "OMX_AUDIO_CodingG726",
-        "OMX_AUDIO_CodingG729",
-        "OMX_AUDIO_CodingAAC",
-        "OMX_AUDIO_CodingMP3",
-        "OMX_AUDIO_CodingSBC",
-        "OMX_AUDIO_CodingVORBIS",
-        "OMX_AUDIO_CodingOPUS",
-        "OMX_AUDIO_CodingWMA",
-        "OMX_AUDIO_CodingRA",
-        "OMX_AUDIO_CodingMIDI",
-        "OMX_AUDIO_CodingFLAC",
-    };
-
-    if (type >= OMX_AUDIO_CodingVendorStartUnused) {
-        return vendorAudioCodingTypeString(type);
-    }
-
-    size_t numNames = sizeof(kNames) / sizeof(kNames[0]);
-
-    if (type < 0 || (size_t)type >= numNames) {
-        return "UNKNOWN";
-    } else {
-        return kNames[type];
-    }
-}
-
-static const char *audioPCMModeString(OMX_AUDIO_PCMMODETYPE type) {
-    static const char *kNames[] = {
-        "OMX_AUDIO_PCMModeLinear",
-        "OMX_AUDIO_PCMModeALaw",
-        "OMX_AUDIO_PCMModeMULaw",
-    };
-
-    size_t numNames = sizeof(kNames) / sizeof(kNames[0]);
-
-    if (type < 0 || (size_t)type >= numNames) {
-        return "UNKNOWN";
-    } else {
-        return kNames[type];
-    }
-}
-
-static const char *amrBandModeString(OMX_AUDIO_AMRBANDMODETYPE type) {
-    static const char *kNames[] = {
-        "OMX_AUDIO_AMRBandModeUnused",
-        "OMX_AUDIO_AMRBandModeNB0",
-        "OMX_AUDIO_AMRBandModeNB1",
-        "OMX_AUDIO_AMRBandModeNB2",
-        "OMX_AUDIO_AMRBandModeNB3",
-        "OMX_AUDIO_AMRBandModeNB4",
-        "OMX_AUDIO_AMRBandModeNB5",
-        "OMX_AUDIO_AMRBandModeNB6",
-        "OMX_AUDIO_AMRBandModeNB7",
-        "OMX_AUDIO_AMRBandModeWB0",
-        "OMX_AUDIO_AMRBandModeWB1",
-        "OMX_AUDIO_AMRBandModeWB2",
-        "OMX_AUDIO_AMRBandModeWB3",
-        "OMX_AUDIO_AMRBandModeWB4",
-        "OMX_AUDIO_AMRBandModeWB5",
-        "OMX_AUDIO_AMRBandModeWB6",
-        "OMX_AUDIO_AMRBandModeWB7",
-        "OMX_AUDIO_AMRBandModeWB8",
-    };
-
-    size_t numNames = sizeof(kNames) / sizeof(kNames[0]);
-
-    if (type < 0 || (size_t)type >= numNames) {
-        return "UNKNOWN";
-    } else {
-        return kNames[type];
-    }
-}
-
-static const char *amrFrameFormatString(OMX_AUDIO_AMRFRAMEFORMATTYPE type) {
-    static const char *kNames[] = {
-        "OMX_AUDIO_AMRFrameFormatConformance",
-        "OMX_AUDIO_AMRFrameFormatIF1",
-        "OMX_AUDIO_AMRFrameFormatIF2",
-        "OMX_AUDIO_AMRFrameFormatFSF",
-        "OMX_AUDIO_AMRFrameFormatRTPPayload",
-        "OMX_AUDIO_AMRFrameFormatITU",
-    };
-
-    size_t numNames = sizeof(kNames) / sizeof(kNames[0]);
-
-    if (type < 0 || (size_t)type >= numNames) {
-        return "UNKNOWN";
-    } else {
-        return kNames[type];
-    }
-}
-
 void OMXCodec::dumpPortStatus(OMX_U32 portIndex) {
     OMX_PARAM_PORTDEFINITIONTYPE def;
     InitOMXParams(&def);
@@ -5063,10 +4855,10 @@ void OMXCodec::dumpPortStatus(OMX_U32 portIndex) {
             printf("  nStride = %" PRIu32 "\n", imageDef->nStride);
 
             printf("  eCompressionFormat = %s\n",
-                   imageCompressionFormatString(imageDef->eCompressionFormat));
+                   asString(imageDef->eCompressionFormat));
 
             printf("  eColorFormat = %s\n",
-                   colorFormatString(imageDef->eColorFormat));
+                   asString(imageDef->eColorFormat));
 
             break;
         }
@@ -5082,10 +4874,10 @@ void OMXCodec::dumpPortStatus(OMX_U32 portIndex) {
             printf("  nStride = %" PRIu32 "\n", videoDef->nStride);
 
             printf("  eCompressionFormat = %s\n",
-                   videoCompressionFormatString(videoDef->eCompressionFormat));
+                   asString(videoDef->eCompressionFormat));
 
             printf("  eColorFormat = %s\n",
-                   colorFormatString(videoDef->eColorFormat));
+                   asString(videoDef->eColorFormat));
 
             break;
         }
@@ -5097,7 +4889,7 @@ void OMXCodec::dumpPortStatus(OMX_U32 portIndex) {
             printf("\n");
             printf("  // Audio\n");
             printf("  eEncoding = %s\n",
-                   audioCodingTypeString(audioDef->eEncoding));
+                   asString(audioDef->eEncoding));
 
             if (audioDef->eEncoding == OMX_AUDIO_CodingPCM) {
                 OMX_AUDIO_PARAM_PCMMODETYPE params;
@@ -5117,7 +4909,7 @@ void OMXCodec::dumpPortStatus(OMX_U32 portIndex) {
                        params.eNumData == OMX_NumericalDataSigned
                         ? "signed" : "unsigned");
 
-                printf("  ePCMMode = %s\n", audioPCMModeString(params.ePCMMode));
+                printf("  ePCMMode = %s\n", asString(params.ePCMMode));
             } else if (audioDef->eEncoding == OMX_AUDIO_CodingAMR) {
                 OMX_AUDIO_PARAM_AMRTYPE amr;
                 InitOMXParams(&amr);
@@ -5129,9 +4921,9 @@ void OMXCodec::dumpPortStatus(OMX_U32 portIndex) {
 
                 printf("  nChannels = %" PRIu32 "\n", amr.nChannels);
                 printf("  eAMRBandMode = %s\n",
-                        amrBandModeString(amr.eAMRBandMode));
+                        asString(amr.eAMRBandMode));
                 printf("  eAMRFrameFormat = %s\n",
-                        amrFrameFormatString(amr.eAMRFrameFormat));
+                        asString(amr.eAMRFrameFormat));
             }
 
             break;
@@ -5535,12 +5327,7 @@ status_t QueryCodec(
         const char *componentName, const char *mime,
         bool isEncoder,
         CodecCapabilities *caps) {
-    if (strncmp(componentName, "OMX.", 4)) {
-        // Not an OpenMax component but a software codec.
-        caps->mFlags = 0;
-        caps->mComponentName = componentName;
-        return OK;
-    }
+    bool isVideo = !strncasecmp(mime, "video/", 6);
 
     sp<OMXCodecObserver> observer = new OMXCodecObserver;
     IOMX::node_id node;
@@ -5555,59 +5342,63 @@ status_t QueryCodec(
     caps->mFlags = 0;
     caps->mComponentName = componentName;
 
-    OMX_VIDEO_PARAM_PROFILELEVELTYPE param;
-    InitOMXParams(&param);
+    // NOTE: OMX does not provide a way to query AAC profile support
+    if (isVideo) {
+        OMX_VIDEO_PARAM_PROFILELEVELTYPE param;
+        InitOMXParams(&param);
 
-    param.nPortIndex = !isEncoder ? 0 : 1;
+        param.nPortIndex = !isEncoder ? 0 : 1;
 
-    for (param.nProfileIndex = 0;; ++param.nProfileIndex) {
-        err = omx->getParameter(
-                node, OMX_IndexParamVideoProfileLevelQuerySupported,
-                &param, sizeof(param));
+        for (param.nProfileIndex = 0;; ++param.nProfileIndex) {
+            err = omx->getParameter(
+                    node, OMX_IndexParamVideoProfileLevelQuerySupported,
+                    &param, sizeof(param));
 
-        if (err != OK) {
-            break;
+            if (err != OK) {
+                break;
+            }
+
+            CodecProfileLevel profileLevel;
+            profileLevel.mProfile = param.eProfile;
+            profileLevel.mLevel = param.eLevel;
+
+            caps->mProfileLevels.push(profileLevel);
         }
 
-        CodecProfileLevel profileLevel;
-        profileLevel.mProfile = param.eProfile;
-        profileLevel.mLevel = param.eLevel;
+        // Color format query
+        // return colors in the order reported by the OMX component
+        // prefix "flexible" standard ones with the flexible equivalent
+        OMX_VIDEO_PARAM_PORTFORMATTYPE portFormat;
+        InitOMXParams(&portFormat);
+        portFormat.nPortIndex = !isEncoder ? 1 : 0;
+        for (portFormat.nIndex = 0;; ++portFormat.nIndex)  {
+            err = omx->getParameter(
+                    node, OMX_IndexParamVideoPortFormat,
+                    &portFormat, sizeof(portFormat));
+            if (err != OK) {
+                break;
+            }
 
-        caps->mProfileLevels.push(profileLevel);
-    }
-
-    // Color format query
-    // return colors in the order reported by the OMX component
-    // prefix "flexible" standard ones with the flexible equivalent
-    OMX_VIDEO_PARAM_PORTFORMATTYPE portFormat;
-    InitOMXParams(&portFormat);
-    portFormat.nPortIndex = !isEncoder ? 1 : 0;
-    for (portFormat.nIndex = 0;; ++portFormat.nIndex)  {
-        err = omx->getParameter(
-                node, OMX_IndexParamVideoPortFormat,
-                &portFormat, sizeof(portFormat));
-        if (err != OK) {
-            break;
-        }
-
-        OMX_U32 flexibleEquivalent;
-        if (ACodec::isFlexibleColorFormat(
-                    omx, node, portFormat.eColorFormat, &flexibleEquivalent)) {
-            bool marked = false;
-            for (size_t i = 0; i < caps->mColorFormats.size(); i++) {
-                if (caps->mColorFormats.itemAt(i) == flexibleEquivalent) {
-                    marked = true;
-                    break;
+            OMX_U32 flexibleEquivalent;
+            if (ACodec::isFlexibleColorFormat(
+                        omx, node, portFormat.eColorFormat, false /* usingNativeWindow */,
+                        &flexibleEquivalent)) {
+                bool marked = false;
+                for (size_t i = 0; i < caps->mColorFormats.size(); i++) {
+                    if (caps->mColorFormats.itemAt(i) == flexibleEquivalent) {
+                        marked = true;
+                        break;
+                    }
+                }
+                if (!marked) {
+                    caps->mColorFormats.push(flexibleEquivalent);
                 }
             }
-            if (!marked) {
-                caps->mColorFormats.push(flexibleEquivalent);
-            }
+            caps->mColorFormats.push(portFormat.eColorFormat);
         }
-        caps->mColorFormats.push(portFormat.eColorFormat);
     }
 
-    if (!isEncoder && !strncmp(mime, "video/", 6)) {
+    if (isVideo && !isEncoder) {
         if (omx->storeMetaDataInBuffers(
                     node, 1 /* port index */, OMX_TRUE) == OK ||
             omx->prepareForAdaptivePlayback(

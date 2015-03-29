@@ -1,3 +1,22 @@
+#
+# This file was modified by DTS, Inc. The portions of the
+# code that are surrounded by "DTS..." are copyrighted and
+# licensed separately, as follows:
+#
+#  (C) 2014 DTS, Inc.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#    http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License
+#
 LOCAL_PATH:= $(call my-dir)
 include $(CLEAR_VARS)
 
@@ -126,6 +145,24 @@ ifeq ($(TARGET_BOARD_PLATFORM),omap4)
 LOCAL_CFLAGS := -DBOARD_CANT_REALLOCATE_OMX_BUFFERS
 endif
 
+ifeq ($(BOARD_USES_QCOM_HARDWARE),true)
+ifneq ($(filter msm7x30 msm8660 msm8960,$(TARGET_BOARD_PLATFORM)),)
+ifeq ($(BOARD_USES_LEGACY_ALSA_AUDIO),true)
+   ifeq ($(USE_TUNNEL_MODE),true)
+        LOCAL_CFLAGS += -DUSE_TUNNEL_MODE
+   endif
+   ifeq ($(NO_TUNNEL_MODE_FOR_MULTICHANNEL),true)
+        LOCAL_CFLAGS += -DNO_TUNNEL_MODE_FOR_MULTICHANNEL
+   endif
+   LOCAL_SRC_FILES += LPAPlayerALSA.cpp TunnelPlayer.cpp
+endif
+endif
+endif
+
+ifeq ($(TARGET_BOARD_PLATFORM),omap4)
+LOCAL_CFLAGS := -DBOARD_CANT_REALLOCATE_OMX_BUFFERS
+endif
+
 #QTI FLAC Decoder
 ifeq ($(call is-vendor-board-platform,QCOM),true)
 LOCAL_C_INCLUDES += $(TARGET_OUT_HEADERS)/mm-audio
@@ -200,6 +237,11 @@ LOCAL_SHARED_LIBRARIES += \
 
 LOCAL_CFLAGS += -Wno-multichar
 
+ifeq ($(DTS_CODEC_M_), true)
+  LOCAL_SRC_FILES+= DTSUtils.cpp
+  LOCAL_CFLAGS += -DDTS_CODEC_M_
+endif
+
 ifeq ($(BOARD_USE_SAMSUNG_COLORFORMAT), true)
 LOCAL_CFLAGS += -DUSE_SAMSUNG_COLORFORMAT
 
@@ -207,7 +249,6 @@ LOCAL_CFLAGS += -DUSE_SAMSUNG_COLORFORMAT
 LOCAL_C_INCLUDES += \
 	$(TOP)/hardware/samsung/exynos4/hal/include \
 	$(TOP)/hardware/samsung/exynos4/include
-
 endif
 
 LOCAL_MODULE:= libstagefright

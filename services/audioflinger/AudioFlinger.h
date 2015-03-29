@@ -14,6 +14,25 @@
 ** WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 ** See the License for the specific language governing permissions and
 ** limitations under the License.
+**
+** This file was modified by Dolby Laboratories, Inc. The portions of the
+** code that are surrounded by "DOLBY..." are copyrighted and
+** licensed separately, as follows:
+**
+**  (C) 2011-2014 Dolby Laboratories, Inc.
+**
+** Licensed under the Apache License, Version 2.0 (the "License");
+** you may not use this file except in compliance with the License.
+** You may obtain a copy of the License at
+**
+**    http://www.apache.org/licenses/LICENSE-2.0
+**
+** Unless required by applicable law or agreed to in writing, software
+** distributed under the License is distributed on an "AS IS" BASIS,
+** WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+** See the License for the specific language governing permissions and
+** limitations under the License.
+**
 */
 
 #ifndef ANDROID_AUDIO_FLINGER_H
@@ -66,6 +85,10 @@
 
 #include <media/nbaio/NBLog.h>
 #include <private/media/AudioTrackShared.h>
+#ifdef DOLBY_DAP
+#include "ds_config.h"
+#endif // DOLBY_END
+
 #include <utils/List.h>
 
 namespace android {
@@ -410,6 +433,10 @@ private:
     // incremented by 2 when screen state changes, bit 0 == 1 means "off"
     // AudioFlinger::setParameters() updates, other threads read w/o lock
     static uint32_t         mScreenState;
+#ifdef HW_ACC_HPX
+    // HPX On/Off state
+    static bool         mIsHPXOn;
+#endif
 
     // Internal dump utilities.
     static const int kDumpLockRetries = 50;
@@ -907,6 +934,8 @@ private:
                 // Effect chains without a valid thread
                 DefaultKeyedVector< audio_session_t , sp<EffectChain> > mOrphanEffectChains;
 
+                // list of sessions for which a valid HW A/V sync ID was retrieved from the HAL
+                DefaultKeyedVector< audio_session_t , audio_hw_sync_t >mHwAvSyncIds;
 private:
     sp<Client>  registerPid(pid_t pid);    // always returns non-0
 
@@ -915,6 +944,9 @@ private:
     void        closeOutputInternal_l(sp<PlaybackThread> thread);
     status_t    closeInput_nonvirtual(audio_io_handle_t input);
     void        closeInputInternal_l(sp<RecordThread> thread);
+    void        setAudioHwSyncForSession_l(PlaybackThread *thread, audio_session_t sessionId);
+
+    status_t    checkStreamType(audio_stream_type_t stream) const;
 
 #ifdef TEE_SINK
     // all record threads serially share a common tee sink, which is re-created on format change
@@ -960,6 +992,23 @@ private:
 
     uint32_t    mPrimaryOutputSampleRate;   // sample rate of the primary output, or zero if none
                                             // protected by mHardwareLock
+#ifdef DOLBY_DAP
+#ifdef DOLBY_DAP_FAST_API
+     enum ds_profile {
+         PROFILE_MOVIE = 0x0,
+         PROFILE_MUSIC,
+         PROFILE_GAME,
+         PROFILE_VOICE,
+         PROFILE_CUSTOM_1,
+         PROFILE_CUSTOM_2
+     };
+     status_t    setDsProfile(ds_profile profileId);
+     status_t    setDsEnabled(bool enabled);
+     status_t    setDsProfile_l(ds_profile profileId);
+    status_t    setDsEnabled_l(bool enabled);
+#endif
+#include "EffectDapController.h"
+#endif // DOLBY_END
 };
 
 #undef INCLUDING_FROM_AUDIOFLINGER_H

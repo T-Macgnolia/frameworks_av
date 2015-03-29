@@ -14,6 +14,29 @@
 ** WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 ** See the License for the specific language governing permissions and
 ** limitations under the License.
+**
+** This file was modified by Dolby Laboratories, Inc. The portions of the
+** code that are surrounded by "DOLBY..." are copyrighted and
+** licensed separately, as follows:
+**
+**  (C) 2011-2014 Dolby Laboratories, Inc.
+** This file was modified by DTS, Inc. The portions of the
+** code that are surrounded by "DTS..." are copyrighted and
+** licensed separately, as follows:
+**
+**  (C) 2013 DTS, Inc.
+**
+** Licensed under the Apache License, Version 2.0 (the "License");
+** you may not use this file except in compliance with the License.
+** You may obtain a copy of the License at
+**
+**    http://www.apache.org/licenses/LICENSE-2.0
+**
+** Unless required by applicable law or agreed to in writing, software
+** distributed under the License is distributed on an "AS IS" BASIS,
+** WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+** See the License for the specific language governing permissions and
+** limitations under the License
 */
 
 
@@ -63,6 +86,9 @@
 #include <media/nbaio/PipeReader.h>
 #include <media/AudioParameter.h>
 #include <private/android_filesystem_config.h>
+#ifdef SRS_PROCESSING
+#include "postpro_patch.h"
+#endif
 
 // ----------------------------------------------------------------------------
 
@@ -79,6 +105,9 @@
 #define ALOGVV(a...) do { } while(0)
 #endif
 
+#ifdef DOLBY_DAP
+#include "EffectDapController_impl.h"
+#endif // DOLBY_END
 namespace android {
 
 static const char kDeadlockedString[] = "AudioFlinger may be deadlocked\n";
@@ -89,6 +118,9 @@ static const char kClientLockedString[] = "Client lock is taken\n";
 nsecs_t AudioFlinger::mStandbyTimeInNsecs = kDefaultStandbyTimeInNsecs;
 
 uint32_t AudioFlinger::mScreenState;
+#ifdef HW_ACC_HPX
+bool AudioFlinger::mIsHPXOn = false;
+#endif
 
 #ifdef TEE_SINK
 bool AudioFlinger::mTeeSinkInputEnabled = false;
@@ -213,6 +245,9 @@ AudioFlinger::AudioFlinger()
         mTeeSinkTrackEnabled = true;
     }
 #endif
+#ifdef DOLBY_DAP
+    EffectDapController::mInstance = new EffectDapController(this);
+#endif // DOLBY_END
 }
 
 void AudioFlinger::onFirstRef()
@@ -247,6 +282,9 @@ void AudioFlinger::onFirstRef()
 
 AudioFlinger::~AudioFlinger()
 {
+#ifdef DOLBY_DAP
+    delete EffectDapController::mInstance;
+#endif // DOLBY_END
     while (!mRecordThreads.isEmpty()) {
         // closeInput_nonvirtual() will remove specified entry from mRecordThreads
         closeInput_nonvirtual(mRecordThreads.keyAt(0));
@@ -671,6 +709,7 @@ sp<IAudioTrack> AudioFlinger::createTrack(
             }
         }
 
+        setAudioHwSyncForSession_l(thread, (audio_session_t)lSessionId);
     }
 
     if (lStatus != NO_ERROR) {
@@ -1034,6 +1073,21 @@ bool AudioFlinger::masterMute_l() const
     return mMasterMute;
 }
 
+status_t AudioFlinger::checkStreamType(audio_stream_type_t stream) const
+{
+    if (uint32_t(stream) >= AUDIO_STREAM_CNT) {
+        ALOGW("setStreamVolume() invalid stream %d", stream);
+        return BAD_VALUE;
+    }
+    pid_t caller = IPCThreadState::self()->getCallingPid();
+    if (uint32_t(stream) >= AUDIO_STREAM_PUBLIC_CNT && caller != getpid_cached) {
+        ALOGW("setStreamVolume() pid %d cannot use internal stream type %d", caller, stream);
+        return PERMISSION_DENIED;
+    }
+
+    return NO_ERROR;
+}
+
 status_t AudioFlinger::setStreamVolume(audio_stream_type_t stream, float value,
         audio_io_handle_t output)
 {
@@ -1042,10 +1096,11 @@ status_t AudioFlinger::setStreamVolume(audio_stream_type_t stream, float value,
         return PERMISSION_DENIED;
     }
 
-    if (uint32_t(stream) >= AUDIO_STREAM_CNT) {
-        ALOGE("setStreamVolume() invalid stream %d", stream);
-        return BAD_VALUE;
+    status_t status = checkStreamType(stream);
+    if (status != NO_ERROR) {
+        return status;
     }
+    ALOG_ASSERT(stream != AUDIO_STREAM_PATCH, "attempt to change AUDIO_STREAM_PATCH volume");
 
     AutoMutex lock(mLock);
 #ifdef QCOM_DIRECTTRACK
@@ -1100,8 +1155,13 @@ status_t AudioFlinger::setStreamMute(audio_stream_type_t stream, bool muted)
         return PERMISSION_DENIED;
     }
 
-    if (uint32_t(stream) >= AUDIO_STREAM_CNT ||
-        uint32_t(stream) == AUDIO_STREAM_ENFORCED_AUDIBLE) {
+    status_t status = checkStreamType(stream);
+    if (status != NO_ERROR) {
+        return status;
+    }
+    ALOG_ASSERT(stream != AUDIO_STREAM_PATCH, "attempt to mute AUDIO_STREAM_PATCH");
+
+    if (uint32_t(stream) == AUDIO_STREAM_ENFORCED_AUDIBLE) {
         ALOGE("setStreamMute() invalid stream %d", stream);
         return BAD_VALUE;
     }
@@ -1116,7 +1176,8 @@ status_t AudioFlinger::setStreamMute(audio_stream_type_t stream, bool muted)
 
 float AudioFlinger::streamVolume(audio_stream_type_t stream, audio_io_handle_t output) const
 {
-    if (uint32_t(stream) >= AUDIO_STREAM_CNT) {
+    status_t status = checkStreamType(stream);
+    if (status != NO_ERROR) {
         return 0.0f;
     }
 
@@ -1137,7 +1198,8 @@ float AudioFlinger::streamVolume(audio_stream_type_t stream, audio_io_handle_t o
 
 bool AudioFlinger::streamMute(audio_stream_type_t stream) const
 {
-    if (uint32_t(stream) >= AUDIO_STREAM_CNT) {
+    status_t status = checkStreamType(stream);
+    if (status != NO_ERROR) {
         return true;
     }
 
@@ -1159,6 +1221,14 @@ status_t AudioFlinger::setParameters(audio_io_handle_t ioHandle, const String8& 
     if (ioHandle == AUDIO_IO_HANDLE_NONE) {
         Mutex::Autolock _l(mLock);
         status_t final_result = NO_ERROR;
+
+#ifdef SRS_PROCESSING
+        POSTPRO_PATCH_PARAMS_SET(keyValuePairs);
+        for (size_t i = 0; i < mPlaybackThreads.size(); i++) {
+            PlaybackThread *thread = mPlaybackThreads.valueAt(i).get();
+            thread->setPostPro();
+        }
+#endif
         {
             AutoMutex lock(mHardwareLock);
             mHardwareStatus = AUDIO_HW_SET_PARAMETER;
@@ -1235,6 +1305,10 @@ status_t AudioFlinger::setParameters(audio_io_handle_t ioHandle, const String8& 
                 AudioFlinger::mScreenState = ((AudioFlinger::mScreenState & ~1) + 2) | isOff;
             }
         }
+#ifdef HW_ACC_HPX
+        if (param.get(String8("HPX"), value) == NO_ERROR)
+            AudioFlinger::mIsHPXOn = !(value == "OFF");
+#endif
         return final_result;
     }
 
@@ -1300,6 +1374,10 @@ String8 AudioFlinger::getParameters(audio_io_handle_t ioHandle, const String8& k
 
     if (ioHandle == AUDIO_IO_HANDLE_NONE) {
         String8 out_s8;
+
+#ifdef SRS_PROCESSING
+        POSTPRO_PATCH_PARAMS_GET(keys, out_s8);
+#endif
 
         for (size_t i = 0; i < mAudioHwDevs.size(); i++) {
             char *s;
@@ -1540,6 +1618,12 @@ sp<AudioFlinger::PlaybackThread> AudioFlinger::getEffectThread_l(int sessionId, 
 
 
 
+void AudioFlinger::PlaybackThread::setPostPro()
+{
+    Mutex::Autolock _l(mLock);
+    if (mType == OFFLOAD)
+        broadcast_l();
+}
 // ----------------------------------------------------------------------------
 
 AudioFlinger::Client::Client(const sp<AudioFlinger>& audioFlinger, pid_t pid)
@@ -1674,13 +1758,6 @@ sp<IAudioRecord> AudioFlinger::openRecord(
         if (thread == NULL) {
             ALOGE("openRecord() checkRecordThread_l failed");
             lStatus = BAD_VALUE;
-            goto Exit;
-        }
-
-        if (deviceRequiresCaptureAudioOutputPermission(thread->inDevice())
-                && !captureAudioOutputAllowed()) {
-            ALOGE("openRecord() permission denied: capture not allowed");
-            lStatus = PERMISSION_DENIED;
             goto Exit;
         }
 
@@ -1872,21 +1949,68 @@ status_t AudioFlinger::setLowRamDevice(bool isLowRamDevice)
 audio_hw_sync_t AudioFlinger::getAudioHwSyncForSession(audio_session_t sessionId)
 {
     Mutex::Autolock _l(mLock);
-    for (size_t i = 0; i < mPlaybackThreads.size(); i++) {
-        sp<PlaybackThread> thread = mPlaybackThreads.valueAt(i);
-        if ((thread->hasAudioSession(sessionId) & ThreadBase::TRACK_SESSION) != 0) {
-            // A session can only be on one thread, so exit after first match
-            String8 reply = thread->getParameters(String8(AUDIO_PARAMETER_STREAM_HW_AV_SYNC));
-            AudioParameter param = AudioParameter(reply);
-            int value;
-            if (param.getInt(String8(AUDIO_PARAMETER_STREAM_HW_AV_SYNC), value) == NO_ERROR) {
-                return value;
-            }
+
+    ssize_t index = mHwAvSyncIds.indexOfKey(sessionId);
+    if (index >= 0) {
+        ALOGV("getAudioHwSyncForSession found ID %d for session %d",
+              mHwAvSyncIds.valueAt(index), sessionId);
+        return mHwAvSyncIds.valueAt(index);
+    }
+
+    audio_hw_device_t *dev = mPrimaryHardwareDev->hwDevice();
+    if (dev == NULL) {
+        return AUDIO_HW_SYNC_INVALID;
+    }
+    char *reply = dev->get_parameters(dev, AUDIO_PARAMETER_HW_AV_SYNC);
+    AudioParameter param = AudioParameter(String8(reply));
+    free(reply);
+
+    int value;
+    if (param.getInt(String8(AUDIO_PARAMETER_HW_AV_SYNC), value) != NO_ERROR) {
+        ALOGW("getAudioHwSyncForSession error getting sync for session %d", sessionId);
+        return AUDIO_HW_SYNC_INVALID;
+    }
+
+    // allow only one session for a given HW A/V sync ID.
+    for (size_t i = 0; i < mHwAvSyncIds.size(); i++) {
+        if (mHwAvSyncIds.valueAt(i) == (audio_hw_sync_t)value) {
+            ALOGV("getAudioHwSyncForSession removing ID %d for session %d",
+                  value, mHwAvSyncIds.keyAt(i));
+            mHwAvSyncIds.removeItemsAt(i);
             break;
         }
     }
-    return AUDIO_HW_SYNC_INVALID;
+
+    mHwAvSyncIds.add(sessionId, value);
+
+    for (size_t i = 0; i < mPlaybackThreads.size(); i++) {
+        sp<PlaybackThread> thread = mPlaybackThreads.valueAt(i);
+        uint32_t sessions = thread->hasAudioSession(sessionId);
+        if (sessions & PlaybackThread::TRACK_SESSION) {
+            AudioParameter param = AudioParameter();
+            param.addInt(String8(AUDIO_PARAMETER_STREAM_HW_AV_SYNC), value);
+            thread->setParameters(param.toString());
+            break;
+        }
+    }
+
+    ALOGV("getAudioHwSyncForSession adding ID %d for session %d", value, sessionId);
+    return (audio_hw_sync_t)value;
 }
+
+// setAudioHwSyncForSession_l() must be called with AudioFlinger::mLock held
+void AudioFlinger::setAudioHwSyncForSession_l(PlaybackThread *thread, audio_session_t sessionId)
+{
+    ssize_t index = mHwAvSyncIds.indexOfKey(sessionId);
+    if (index >= 0) {
+        audio_hw_sync_t syncId = mHwAvSyncIds.valueAt(index);
+        ALOGV("setAudioHwSyncForSession_l found ID %d for session %d", syncId, sessionId);
+        AudioParameter param = AudioParameter();
+        param.addInt(String8(AUDIO_PARAMETER_STREAM_HW_AV_SYNC), syncId);
+        thread->setParameters(param.toString());
+    }
+}
+
 
 // ----------------------------------------------------------------------------
 
@@ -2251,13 +2375,13 @@ sp<AudioFlinger::RecordThread> AudioFlinger::openInput_l(audio_module_handle_t m
     status_t status = inHwHal->open_input_stream(inHwHal, *input, device, &halconfig,
                                         &inStream, flags, address.string(), source);
     ALOGV("openInput_l() openInputStream returned input %p, SamplingRate %d"
-           ", Format %#x, Channels %x, flags %#x, status %d",
+           ", Format %#x, Channels %x, flags %#x, status %d addr %s",
             inStream,
             halconfig.sample_rate,
             halconfig.format,
             halconfig.channel_mask,
             flags,
-            status);
+            status, address.string());
 
     // If the input could not be opened with the requested parameters and we can handle the
     // conversion internally, try to open again with the proposed parameters. The AudioFlinger can
@@ -2886,6 +3010,11 @@ status_t AudioFlinger::moveEffects(int sessionId, audio_io_handle_t srcOutput,
 
     Mutex::Autolock _dl(dstThread->mLock);
     Mutex::Autolock _sl(srcThread->mLock);
+#ifdef DOLBY_DAP_MOVE_EFFECT
+    if (sessionId == DOLBY_MOVE_EFFECT_SIGNAL) {
+        return EffectDapController::instance()->moveEffect(AUDIO_SESSION_OUTPUT_MIX, srcThread, dstThread);
+    }
+#endif // DOLBY_END
     return moveEffectChain_l(sessionId, srcThread, dstThread, false);
 }
 
@@ -2905,11 +3034,11 @@ status_t AudioFlinger::moveEffectChain_l(int sessionId,
         return INVALID_OPERATION;
     }
 
-    // Check whether the destination thread has a channel count more than FCC_2, which is
-    // currently required for (most) effects in deep buffer path. Prevent moving the effect
-    // chain here rather than disabling the addEffect_l() call in dstThread below.
-    if ((dstThread->mType == ThreadBase::MIXER || dstThread->mType == ThreadBase::DUPLICATING)
-            && (dstThread->mChannelCount > FCC_2)) {
+    // Check whether the destination thread has a channel count of FCC_2, which is
+    // currently required for (most) effects. Prevent moving the effect chain here rather
+    // than disabling the addEffect_l() call in dstThread below.
+    if ((dstThread->type() == ThreadBase::MIXER || dstThread->type() == ThreadBase::DUPLICATING) &&
+            dstThread->mChannelCount != FCC_2) {
         ALOGW("moveEffectChain_l() effect chain failed because"
                 " destination thread %p channel count(%u) > %u",
                 dstThread, dstThread->mChannelCount, FCC_2);
@@ -2967,6 +3096,13 @@ status_t AudioFlinger::moveEffectChain_l(int sessionId,
     if (status != NO_ERROR) {
         for (size_t i = 0; i < removed.size(); i++) {
             srcThread->addEffect_l(removed[i]);
+#ifdef DOLBY_DAP_MOVE_EFFECT
+            // removeEffect_l() has stopped the effect if it was active so it must be restarted
+            if (effect->state() == EffectModule::ACTIVE ||
+                    effect->state() == EffectModule::STOPPING) {
+                effect->start();
+            }
+#endif // DOLBY_END
             if (dstChain != 0 && reRegister) {
                 AudioSystem::unregisterEffect(removed[i]->id());
                 AudioSystem::registerEffect(&removed[i]->desc(),

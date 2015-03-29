@@ -1245,7 +1245,7 @@ status_t LiveSession::getDuration(int64_t *durationUs) const {
     for (size_t i = 0; i < mFetcherInfos.size(); ++i) {
         int64_t fetcherDurationUs = mFetcherInfos.valueAt(i).mDurationUs;
 
-        if (fetcherDurationUs >= 0ll && fetcherDurationUs > maxDurationUs) {
+        if (fetcherDurationUs > maxDurationUs) {
             maxDurationUs = fetcherDurationUs;
         }
     }
@@ -1294,6 +1294,14 @@ status_t LiveSession::selectTrack(size_t index, bool select) {
         msg->post();
     }
     return err;
+}
+
+ssize_t LiveSession::getSelectedTrack(media_track_type type) const {
+    if (mPlaylist == NULL) {
+        return -1;
+    } else {
+        return mPlaylist->getSelectedTrack(type);
+    }
 }
 
 bool LiveSession::canSwitchUp() {
@@ -1584,7 +1592,6 @@ void LiveSession::onChangeConfiguration3(const sp<AMessage> &msg) {
         sp<PlaylistFetcher> fetcher = addFetcher(uri.c_str());
         CHECK(fetcher != NULL);
 
-        int64_t latestSeq = -1;
         int64_t startTimeUs = -1;
         int64_t segmentStartTimeUs = -1ll;
         int32_t discontinuitySeq = -1;
@@ -1610,7 +1617,7 @@ void LiveSession::onChangeConfiguration3(const sp<AMessage> &msg) {
                     extra->setInt64("timeUs", timeUs);
                     discontinuityQueue = mDiscontinuities.valueFor(indexToType(j));
                     discontinuityQueue->queueDiscontinuity(
-                            ATSParser::DISCONTINUITY_SEEK, extra, true);
+                            ATSParser::DISCONTINUITY_TIME, extra, true);
                 } else {
                     int32_t type;
                     sp<AMessage> meta;
@@ -1624,14 +1631,15 @@ void LiveSession::onChangeConfiguration3(const sp<AMessage> &msg) {
 
                     if (meta != NULL && !meta->findInt32("discontinuity", &type)) {
                         int64_t tmpUs;
-                        CHECK(meta->findInt64("timeUs", &tmpUs));
-                        if (startTimeUs < 0 || tmpUs < startTimeUs) {
-                            startTimeUs = tmpUs;
-                        }
+                        int64_t tmpSegmentUs;
 
-                        CHECK(meta->findInt64("segmentStartTimeUs", &tmpUs));
-                        if (segmentStartTimeUs < 0 || tmpUs < segmentStartTimeUs) {
-                            segmentStartTimeUs = tmpUs;
+                        CHECK(meta->findInt64("timeUs", &tmpUs));
+                        CHECK(meta->findInt64("segmentStartTimeUs", &tmpSegmentUs));
+                        if (startTimeUs < 0 || tmpSegmentUs < segmentStartTimeUs) {
+                            startTimeUs = tmpUs;
+                            segmentStartTimeUs = tmpSegmentUs;
+                        } else if (tmpSegmentUs == segmentStartTimeUs && tmpUs < startTimeUs) {
+                            startTimeUs = tmpUs;
                         }
 
                         if (meta->findInt64("frameDeltaUs", &tmpUs) && tmpUs > 0) {
