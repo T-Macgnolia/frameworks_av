@@ -2497,37 +2497,6 @@ void AudioTrack::DirectClient::notify(int msg) {
 }
 #endif
 
-#ifdef QCOM_DIRECTTRACK
-void AudioTrack::notify(int msg) {
-    if (msg == EVENT_UNDERRUN) {
-        ALOGV("Posting event underrun to Audio Sink.");
-        mCbf(EVENT_UNDERRUN, mUserData, 0);
-    }
-    if (msg == EVENT_HW_FAIL) {
-        ALOGV("Posting event HW fail to Audio Sink.");
-        mCbf(EVENT_HW_FAIL, mUserData, 0);
-    }
-}
-
-status_t AudioTrack::getTimeStamp(uint64_t *tstamp) {
-    if (mDirectTrack != NULL) {
-        *tstamp = mDirectTrack->getTimeStamp();
-        ALOGE("Timestamp %lld ", *tstamp);
-    }
-    return NO_ERROR;
-}
-
-void AudioTrack::DirectClient::notify(int msg) {
-    sp<AudioTrack> track = mAudioTrack.promote();
-    if (track == 0) {
-        ALOGE("AudioTrack dead?");
-        return;
-    }
-
-    return track->notify(msg);
-}
-#endif
-
 // =========================================================================
 
 AudioTrack::AudioTrackThread::AudioTrackThread(AudioTrack& receiver, bool bCanCallJava)
