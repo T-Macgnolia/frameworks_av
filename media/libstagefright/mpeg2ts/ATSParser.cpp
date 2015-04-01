@@ -42,6 +42,7 @@
 #include "AnotherPacketSource.h"
 #include "ESQueue.h"
 #include "include/avc_utils.h"
+#include "ID3.h"
 #include "include/ExtendedUtils.h"
 
 #include <media/stagefright/foundation/ABitReader.h>

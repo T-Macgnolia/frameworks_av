@@ -334,8 +334,6 @@ status_t AudioPolicyManager::setDeviceConnectionStateInt(audio_devices_t device,
     String8 address = (device_address == NULL) ? String8("") : String8(device_address);
     AudioParameter param;
 
-    AudioParameter param;
-
     // handle legacy remote submix case where the address was not always specified
     if (deviceDistinguishesOnAddress(device) && (address.length() == 0)) {
         address = String8("0");
