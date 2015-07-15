@@ -152,6 +152,7 @@ const char CameraParameters::SCENE_MODE_CANDLELIGHT[] = "candlelight";
 const char CameraParameters::SCENE_MODE_BARCODE[] = "barcode";
 const char CameraParameters::SCENE_MODE_HDR[] = "hdr";
 
+const char CameraParameters::PIXEL_FORMAT_NV12[] = "nv12";
 const char CameraParameters::PIXEL_FORMAT_YUV422SP[] = "yuv422sp";
 const char CameraParameters::PIXEL_FORMAT_YUV420SP[] = "yuv420sp";
 const char CameraParameters::PIXEL_FORMAT_YUV422I[] = "yuv422i-yuyv";
@@ -531,6 +532,8 @@ int CameraParameters::previewFormatToEnum(const char* format) {
     return
         !format ?
             HAL_PIXEL_FORMAT_YCrCb_420_SP :
+        !strcmp(format, PIXEL_FORMAT_NV12) ?
+            HAL_PIXEL_FORMAT_YCrCb_420_SP : // NV12
         !strcmp(format, PIXEL_FORMAT_YUV422SP) ?
             HAL_PIXEL_FORMAT_YCbCr_422_SP : // NV16
         !strcmp(format, PIXEL_FORMAT_YUV420SP) ?

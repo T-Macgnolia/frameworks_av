@@ -615,6 +615,7 @@ public:
 
     // Pixel color formats for KEY_PREVIEW_FORMAT, KEY_PICTURE_FORMAT,
     // and KEY_VIDEO_FRAME_FORMAT
+    static const char PIXEL_FORMAT_NV12[]; // NV12
     static const char PIXEL_FORMAT_YUV422SP[];
     static const char PIXEL_FORMAT_YUV420SP[]; // NV21
     static const char PIXEL_FORMAT_YUV422I[]; // YUY2
